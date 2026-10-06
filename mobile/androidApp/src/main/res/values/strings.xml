@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Keystone</string>
     <string name="home_greeting_title">Your AI HR assistant</string>
-    <string name="home_greeting_body">Ask about leave, HR requests, onboarding and company policies. Chat arrives in the next phase.</string>
+    <string name="home_greeting_body">Ask about leave, HR requests, onboarding and company policies. Tap below to start a conversation.</string>
     <string name="home_backend_title">Backend</string>
     <string name="status_checking">Checking connection…</string>
     <string name="status_connected">Connected</string>
@@ -13,4 +13,25 @@
     <string name="error_server">The server returned an error (%1$d).</string>
     <string name="error_invalid_response">The server sent an unexpected response. The app may need an update.</string>
     <string name="error_unknown">Something went wrong. Please try again.</string>
+    <string name="error_assistant_unavailable">The assistant is unavailable right now. Please try again in a moment.</string>
+
+    <string name="home_open_chat">Ask Keystone</string>
+
+    <string name="chat_title">Keystone Assistant</string>
+    <string name="chat_you">You</string>
+    <string name="chat_thinking">Keystone is thinking</string>
+    <string name="chat_stopped">Stopped</string>
+    <string name="chat_input_hint">Ask about leave, policies, onboarding…</string>
+    <string name="chat_empty_title">How can I help?</string>
+    <string name="chat_empty_body">I\'m your HR assistant. Ask me anything about leave, HR requests or company policies.</string>
+    <string name="chat_suggestion_leave">How do I request annual leave?</string>
+    <string name="chat_suggestion_onboarding">What should I do in my first week?</string>
+    <string name="chat_suggestion_request">How do I raise an HR request?</string>
+    <string name="chat_error_network">Connection lost. Check your network and try again.</string>
+    <string name="chat_error_timeout">The assistant took too long to respond.</string>
+    <string name="chat_error_busy">The assistant is busy right now. Please try again shortly.</string>
+    <string name="chat_error_misconfigured">The assistant isn\'t set up correctly. Please contact support.</string>
+    <string name="action_send">Send</string>
+    <string name="action_stop">Stop generating</string>
+    <string name="action_back">Back</string>
 </resources>

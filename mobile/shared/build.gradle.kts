@@ -51,3 +51,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 }
+
+// Lets JVM tests read the shared contract fixtures in /contracts.
+tasks.withType<Test>().configureEach {
+    systemProperty("keystone.contractsDir", rootProject.file("../contracts/fixtures").absolutePath)
+}

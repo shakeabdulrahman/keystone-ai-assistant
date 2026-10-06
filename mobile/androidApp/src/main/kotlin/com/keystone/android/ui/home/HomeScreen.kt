@@ -9,11 +9,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -38,34 +42,42 @@ import com.keystone.shared.domain.model.BackendInfo
 /** Stateful entry point: owns the ViewModel. */
 @Composable
 fun HomeRoute(
-    modifier: Modifier = Modifier,
+    onOpenChat: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    HomeScreen(state = state, onRetry = viewModel::onRetry, modifier = modifier)
+    HomeScreen(state = state, onRetry = viewModel::onRetry, onOpenChat = onOpenChat)
 }
 
 /** Stateless screen: renders state and reports events. Easy to preview and test. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     state: HomeUiState,
     onRetry: () -> Unit,
+    onOpenChat: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        GreetingCard()
-        BackendCard(status = state.backend, onRetry = onRetry)
+    Scaffold(
+        modifier = modifier,
+        topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }) },
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            GreetingCard(onOpenChat = onOpenChat)
+            BackendCard(status = state.backend, onRetry = onRetry)
+        }
     }
 }
 
 @Composable
-private fun GreetingCard() {
+private fun GreetingCard(onOpenChat: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -82,6 +94,9 @@ private fun GreetingCard() {
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
+            Button(onClick = onOpenChat, modifier = Modifier.padding(top = 8.dp)) {
+                Text(stringResource(R.string.home_open_chat))
+            }
         }
     }
 }
@@ -157,6 +172,7 @@ private fun BackendStatus.tone(): StatusTone = when (this) {
 private fun AppError.message(): String = when (this) {
     AppError.Network -> stringResource(R.string.error_network)
     is AppError.Http -> stringResource(R.string.error_server, status)
+    is AppError.Assistant -> stringResource(R.string.error_assistant_unavailable)
     AppError.InvalidResponse -> stringResource(R.string.error_invalid_response)
     AppError.Unknown -> stringResource(R.string.error_unknown)
 }
@@ -168,6 +184,7 @@ private fun HomeConnectedPreview() {
         HomeScreen(
             state = HomeUiState(BackendStatus.Connected(BackendInfo("keystone", "0.1.0", "local"))),
             onRetry = {},
+            onOpenChat = {},
         )
     }
 }
@@ -176,6 +193,10 @@ private fun HomeConnectedPreview() {
 @Composable
 private fun HomeUnreachablePreview() {
     KeystoneTheme(darkTheme = true) {
-        HomeScreen(state = HomeUiState(BackendStatus.Unreachable(AppError.Network)), onRetry = {})
+        HomeScreen(
+            state = HomeUiState(BackendStatus.Unreachable(AppError.Network)),
+            onRetry = {},
+            onOpenChat = {},
+        )
     }
 }

@@ -21,15 +21,18 @@ internal suspend fun <T> safeApiCall(block: suspend () -> T): AppResult<T> = try
     AppResult.Success(block())
 } catch (e: CancellationException) {
     throw e
-} catch (e: ResponseException) {
-    val code = runCatching { e.response.body<ProblemDto>().code }.getOrNull()
-    AppResult.Failure(AppError.Http(e.response.status.value, code))
-} catch (e: IOException) {
-    AppResult.Failure(AppError.Network)
-} catch (e: ContentConvertException) {
-    AppResult.Failure(AppError.InvalidResponse)
-} catch (e: SerializationException) {
-    AppResult.Failure(AppError.InvalidResponse)
 } catch (e: Exception) {
-    AppResult.Failure(AppError.Unknown)
+    AppResult.Failure(e.toAppError())
+}
+
+/** Maps any exception from the networking stack to an [AppError]. Never call with a cancellation. */
+internal suspend fun Throwable.toAppError(): AppError = when (this) {
+    is ResponseException -> {
+        // Streaming responses aren't buffered, so the problem body may be unreadable: that's fine.
+        val code = runCatching { response.body<ProblemDto>().code }.getOrNull()
+        AppError.Http(response.status.value, code)
+    }
+    is IOException -> AppError.Network
+    is ContentConvertException, is SerializationException -> AppError.InvalidResponse
+    else -> AppError.Unknown
 }
