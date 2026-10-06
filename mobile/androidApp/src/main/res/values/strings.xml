@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Keystone</string>
+    <string name="home_greeting_title">Your AI HR assistant</string>
+    <string name="home_greeting_body">Ask about leave, HR requests, onboarding and company policies. Chat arrives in the next phase.</string>
+    <string name="home_backend_title">Backend</string>
+    <string name="status_checking">Checking connection…</string>
+    <string name="status_connected">Connected</string>
+    <string name="status_unreachable">Unreachable</string>
+    <string name="backend_details">%1$s v%2$s · %3$s</string>
+    <string name="action_retry">Retry</string>
+    <string name="error_network">Can\'t reach the server. Check that the backend is running and try again.</string>
+    <string name="error_server">The server returned an error (%1$d).</string>
+    <string name="error_invalid_response">The server sent an unexpected response. The app may need an update.</string>
+    <string name="error_unknown">Something went wrong. Please try again.</string>
+</resources>

@@ -1,0 +1,35 @@
+# OS / IDE
+.DS_Store
+.idea/
+*.iml
+.vscode/
+
+# Secrets — never commit
+.env
+*.keystore
+*.jks
+google-services.json
+GoogleService-Info.plist
+local.properties
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Gradle / Android / Kotlin
+.gradle/
+.kotlin/
+build/
+captures/
+*.apk
+*.aab
+
+# iOS
+xcuserdata/
+DerivedData/
