@@ -34,4 +34,44 @@
     <string name="action_send">Send</string>
     <string name="action_stop">Stop generating</string>
     <string name="action_back">Back</string>
+    <string name="action_sign_out">Sign out</string>
+    <string name="action_rename">Rename</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_save">Save</string>
+
+    <string name="home_open_history">Your conversations</string>
+    <string name="home_signed_in_as">Signed in as %1$s</string>
+
+    <string name="signin_title">Sign in</string>
+    <string name="signin_title_create">Create your account</string>
+    <string name="signin_subtitle">Your AI assistant for leave, HR requests and company policies.</string>
+    <string name="signin_email">Work email</string>
+    <string name="signin_password">Password</string>
+    <string name="signin_email_invalid">Enter a valid email address.</string>
+    <string name="signin_password_rule">At least %1$d characters.</string>
+    <string name="signin_action">Sign in</string>
+    <string name="signin_action_create">Create account</string>
+    <string name="signin_switch_to_create">New here? Create an account</string>
+    <string name="signin_switch_to_signin">Already have an account? Sign in</string>
+    <string name="signin_error_invalid_email">That email address doesn\'t look right.</string>
+    <string name="signin_error_credentials">Email or password is incorrect.</string>
+    <string name="signin_error_email_in_use">An account with this email already exists. Try signing in.</string>
+    <string name="signin_error_weak_password">Choose a stronger password.</string>
+    <string name="signin_error_too_many">Too many attempts. Please wait a moment and try again.</string>
+    <string name="signin_error_network">No connection. Check your network and try again.</string>
+
+    <string name="history_title">Your conversations</string>
+    <string name="history_new">New chat</string>
+    <string name="history_loading">Loading conversations</string>
+    <string name="history_offline">Couldn\'t refresh. Showing conversations saved on this device.</string>
+    <string name="history_empty_title">No conversations yet</string>
+    <string name="history_empty_body">Ask Keystone anything about leave, HR requests or policies.</string>
+    <string name="history_error_title">Couldn\'t load your conversations</string>
+    <string name="history_load_more">Load older conversations</string>
+    <string name="history_more_actions">More actions for %1$s</string>
+    <string name="history_rename_title">Rename conversation</string>
+    <string name="history_delete_title">Delete conversation?</string>
+    <string name="history_delete_body">“%1$s” will be removed from your history.</string>
+    <string name="history_action_failed">That didn\'t work. Check your connection and try again.</string>
 </resources>

@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,11 +43,21 @@ import com.keystone.shared.domain.model.BackendInfo
 /** Stateful entry point: owns the ViewModel. */
 @Composable
 fun HomeRoute(
+    userEmail: String?,
     onOpenChat: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onSignOut: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    HomeScreen(state = state, onRetry = viewModel::onRetry, onOpenChat = onOpenChat)
+    HomeScreen(
+        state = state,
+        userEmail = userEmail,
+        onRetry = viewModel::onRetry,
+        onOpenChat = onOpenChat,
+        onOpenHistory = onOpenHistory,
+        onSignOut = onSignOut,
+    )
 }
 
 /** Stateless screen: renders state and reports events. Easy to preview and test. */
@@ -54,13 +65,21 @@ fun HomeRoute(
 @Composable
 fun HomeScreen(
     state: HomeUiState,
+    userEmail: String?,
     onRetry: () -> Unit,
     onOpenChat: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
         modifier = modifier,
-        topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }) },
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.app_name)) },
+                actions = { TextButton(onClick = onSignOut) { Text(stringResource(R.string.action_sign_out)) } },
+            )
+        },
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -70,14 +89,14 @@ fun HomeScreen(
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            GreetingCard(onOpenChat = onOpenChat)
+            GreetingCard(userEmail = userEmail, onOpenChat = onOpenChat, onOpenHistory = onOpenHistory)
             BackendCard(status = state.backend, onRetry = onRetry)
         }
     }
 }
 
 @Composable
-private fun GreetingCard(onOpenChat: () -> Unit) {
+private fun GreetingCard(userEmail: String?, onOpenChat: () -> Unit, onOpenHistory: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -94,8 +113,19 @@ private fun GreetingCard(onOpenChat: () -> Unit) {
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
-            Button(onClick = onOpenChat, modifier = Modifier.padding(top = 8.dp)) {
-                Text(stringResource(R.string.home_open_chat))
+            userEmail?.let {
+                Text(
+                    text = stringResource(R.string.home_signed_in_as, it),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(top = 8.dp),
+            ) {
+                Button(onClick = onOpenChat) { Text(stringResource(R.string.home_open_chat)) }
+                OutlinedButton(onClick = onOpenHistory) { Text(stringResource(R.string.home_open_history)) }
             }
         }
     }
@@ -183,8 +213,11 @@ private fun HomeConnectedPreview() {
     KeystoneTheme {
         HomeScreen(
             state = HomeUiState(BackendStatus.Connected(BackendInfo("keystone", "0.1.0", "local"))),
+            userEmail = "test@keystone.dev",
             onRetry = {},
             onOpenChat = {},
+            onOpenHistory = {},
+            onSignOut = {},
         )
     }
 }
@@ -195,8 +228,11 @@ private fun HomeUnreachablePreview() {
     KeystoneTheme(darkTheme = true) {
         HomeScreen(
             state = HomeUiState(BackendStatus.Unreachable(AppError.Network)),
+            userEmail = "test@keystone.dev",
             onRetry = {},
             onOpenChat = {},
+            onOpenHistory = {},
+            onSignOut = {},
         )
     }
 }

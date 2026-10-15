@@ -6,6 +6,8 @@ data class ChatUiState(
     val messages: List<ChatMessageUi> = emptyList(),
     val input: String = "",
     val isResponding: Boolean = false,
+    /** Opening a past conversation: true until its history has been shown. */
+    val isLoadingHistory: Boolean = false,
 ) {
     val canSend: Boolean get() = input.isNotBlank() && !isResponding
 }

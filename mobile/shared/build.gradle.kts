@@ -4,6 +4,8 @@ plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.room)
 }
 
 kotlin {
@@ -25,6 +27,10 @@ kotlin {
             implementation(libs.ktor.serialization.kotlinx.json)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.coroutines.core)
+            api(libs.kotlinx.datetime)
+            // Offline cache (Room is multiplatform since 2.7; the bundled SQLite works on every target).
+            api(libs.room.runtime)
+            implementation(libs.sqlite.bundled)
         }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
@@ -38,6 +44,17 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
         }
     }
+}
+
+room {
+    schemaDirectory("$projectDir/schemas") // exported schemas are reviewed in PRs and drive migrations
+}
+
+dependencies {
+    // Room's annotation processor runs once per platform target.
+    add("kspAndroid", libs.room.compiler)
+    add("kspIosArm64", libs.room.compiler)
+    add("kspIosSimulatorArm64", libs.room.compiler)
 }
 
 android {

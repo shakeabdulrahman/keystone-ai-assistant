@@ -2,7 +2,7 @@
 
 An AI-powered mobile assistant for employees: ask about leave, HR requests, onboarding and company policies by text or voice. The assistant answers from live HR data through **tool calling**, from company documents through **RAG**, streams its replies, and renders real app UI (cards, confirmations, sources) instead of plain text.
 
-> Status: **Phase 2A — Accounts and persistent conversations (backend)** complete. See the [roadmap](#roadmap). The full README (architecture diagrams, screenshots, demo video) arrives in Phase 8.
+> Status: **Phase 2 — Sign-in, conversation history and offline cache** complete. See the [roadmap](#roadmap). The full README (architecture diagrams, screenshots, demo video) arrives in Phase 8.
 
 ## Architecture at a glance
 
@@ -49,7 +49,8 @@ curl -N -X POST http://localhost:8000/v1/chat -H 'content-type: application/json
 
 # 2. Android
 #    Open the mobile/ folder in Android Studio and run the "androidApp" configuration
-#    on an emulator. Home shows "Backend connected"; tap "Ask Keystone" to chat.
+#    on an emulator. Needs mobile/androidApp/google-services.json (see docs/firebase-setup.md).
+#    Sign in, then tap "Ask Keystone" to chat or "Your conversations" for history.
 ```
 
 Backend without Docker (needs a local Postgres with pgvector):
@@ -68,8 +69,8 @@ uv run pytest
 | --- | --- | --- |
 | 0 | Foundations: repo, backend skeleton, KMP + Android skeleton, CI | Done |
 | 1 | Streaming chat (SSE, provider abstraction, Fake + Ollama) | Done |
-| 2 | Firebase sign-in, conversations and history, offline cache | Backend done (2A); app next (2B) |
-| 3 | Tool calling + generative UI cards | |
+| 2 | Firebase sign-in, conversations and history, offline cache | Done |
+| 3 | Tool calling + generative UI cards | Next |
 | 4 | RAG over HR documents with citations | |
 | 5 | Write actions with user confirmation | |
 | 6 | Voice | |

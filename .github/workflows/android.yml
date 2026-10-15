@@ -32,6 +32,30 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      # google-services.json is kept out of git. CI only builds and runs unit tests (no real
+      # sign-in), so a placeholder with the right shape is enough. For signed release builds,
+      # store the real file as a repository secret and write it here instead.
+      - name: Provide Firebase config
+        run: |
+          if [ -n "${GOOGLE_SERVICES_JSON}" ]; then
+            echo "${GOOGLE_SERVICES_JSON}" > androidApp/google-services.json
+          else
+            cat > androidApp/google-services.json <<'JSON'
+          {
+            "project_info": {"project_number": "000000000000", "project_id": "keystone-ci", "storage_bucket": "keystone-ci.appspot.com"},
+            "client": [
+              {"client_info": {"mobilesdk_app_id": "1:000000000000:android:0000000000000000", "android_client_info": {"package_name": "com.keystone.assistant"}},
+               "oauth_client": [], "api_key": [{"current_key": "ci-placeholder"}], "services": {"appinvite_service": {"other_platform_oauth_client": []}}},
+              {"client_info": {"mobilesdk_app_id": "1:000000000000:android:1111111111111111", "android_client_info": {"package_name": "com.keystone.assistant.debug"}},
+               "oauth_client": [], "api_key": [{"current_key": "ci-placeholder"}], "services": {"appinvite_service": {"other_platform_oauth_client": []}}}
+            ],
+            "configuration_version": "1"
+          }
+          JSON
+          fi
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+
       - name: Unit tests (shared KMP + app)
         run: ./gradlew :shared:testDebugUnitTest :androidApp:testDebugUnitTest --stacktrace
 

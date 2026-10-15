@@ -1,10 +1,13 @@
 package com.keystone.android.di
 
 import com.keystone.android.BuildConfig
+import com.keystone.shared.auth.AuthTokenProvider
 import com.keystone.shared.data.remote.KeystoneApi
 import com.keystone.shared.data.remote.createHttpClient
+import com.keystone.shared.data.repository.AccountRepositoryImpl
 import com.keystone.shared.data.repository.ChatRepositoryImpl
 import com.keystone.shared.data.repository.SystemRepositoryImpl
+import com.keystone.shared.domain.repository.AccountRepository
 import com.keystone.shared.domain.repository.ChatRepository
 import com.keystone.shared.domain.repository.SystemRepository
 import dagger.Module
@@ -25,7 +28,7 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideHttpClient(): HttpClient = createHttpClient()
+    fun provideHttpClient(tokens: AuthTokenProvider): HttpClient = createHttpClient(tokens = tokens)
 
     @Provides
     @Singleton
@@ -39,6 +42,10 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideChatRepository(api: KeystoneApi): ChatRepository = ChatRepositoryImpl(api)
+
+    @Provides
+    @Singleton
+    fun provideAccountRepository(api: KeystoneApi): AccountRepository = AccountRepositoryImpl(api)
 
     /** Injected so tests can drive time with the coroutine test scheduler. */
     @Provides

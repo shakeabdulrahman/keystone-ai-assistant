@@ -1,10 +1,13 @@
 package com.keystone.android.ui.chat
 
+import androidx.lifecycle.SavedStateHandle
 import com.keystone.android.MainDispatcherRule
+import com.keystone.android.fakes.FakeConversationRepository
 import com.keystone.android.ui.chat.ChatMessageUi.Role
 import com.keystone.android.ui.chat.ChatMessageUi.Status
 import com.keystone.shared.core.AppError
 import com.keystone.shared.domain.model.ChatEvent
+import com.keystone.shared.domain.model.StoredMessage
 import com.keystone.shared.domain.model.TokenUsage
 import com.keystone.shared.domain.repository.ChatRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -16,6 +19,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.datetime.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -50,8 +54,44 @@ class ChatViewModelTest {
         emit(ChatEvent.Completed("m-$conversationId", truncated = false, usage = TokenUsage(1, words.size)))
     }
 
-    private fun kotlinx.coroutines.test.TestScope.viewModel(repo: ChatRepository) =
-        ChatViewModel(repo, testScheduler.timeSource)
+    private val history = FakeConversationRepository()
+
+    private fun kotlinx.coroutines.test.TestScope.viewModel(
+        repo: ChatRepository,
+        conversationId: String? = null,
+    ) = ChatViewModel(
+        repo,
+        history,
+        SavedStateHandle(mapOf(ChatViewModel.CONVERSATION_ID_ARG to conversationId)),
+        testScheduler.timeSource,
+    )
+
+    private fun stored(id: String, role: StoredMessage.Role, text: String, status: StoredMessage.Status) =
+        StoredMessage(id, "c7", role, text, status, Instant.fromEpochMilliseconds(id.length.toLong()))
+
+    @Test
+    fun `opening a past conversation shows its history and continues it`() = runTest(mainDispatcherRule.dispatcher) {
+        history.serverMessages = mapOf(
+            "c7" to listOf(
+                stored("1", StoredMessage.Role.User, "Old question", StoredMessage.Status.Complete),
+                stored("22", StoredMessage.Role.Assistant, "Half an ans", StoredMessage.Status.Interrupted),
+            ),
+        )
+        val repo = FakeChatRepository(reply("c7", "Follow-up answer"))
+        val vm = viewModel(repo, conversationId = "c7")
+        advanceUntilIdle()
+
+        assertEquals(listOf("Old question", "Half an ans"), vm.uiState.value.messages.map { it.text })
+        assertEquals(Status.Stopped, vm.uiState.value.messages[1].status)
+        assertFalse(vm.uiState.value.isLoadingHistory)
+
+        vm.onSuggestion("Next question")
+        advanceUntilIdle()
+
+        assertEquals("c7", repo.calls.single().conversationId) // continues the same conversation
+        assertEquals(4, vm.uiState.value.messages.size)
+        assertTrue("refreshMessages:c7" in history.calls) // cache synced after the answer
+    }
 
     @Test
     fun `send shows question and streamed answer`() = runTest(mainDispatcherRule.dispatcher) {

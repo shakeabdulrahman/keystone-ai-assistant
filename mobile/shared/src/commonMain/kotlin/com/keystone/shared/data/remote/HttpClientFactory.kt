@@ -1,5 +1,7 @@
 package com.keystone.shared.data.remote
 
+import com.keystone.shared.auth.AuthTokenProvider
+import com.keystone.shared.auth.installBearerAuth
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.plugins.HttpTimeout
@@ -22,9 +24,12 @@ internal val KeystoneJson = Json {
 /**
  * Builds the single HttpClient used by every API in the app.
  * The engine is injectable so tests can pass a MockEngine.
+ * With [tokens], every request is authenticated (see installBearerAuth).
  */
-fun createHttpClient(engine: HttpClientEngine = platformHttpEngine()): HttpClient =
-    HttpClient(engine) {
+fun createHttpClient(
+    engine: HttpClientEngine = platformHttpEngine(),
+    tokens: AuthTokenProvider? = null,
+): HttpClient = HttpClient(engine) {
         expectSuccess = true // non-2xx responses throw, and safeApiCall maps them to AppError
         install(ContentNegotiation) {
             json(KeystoneJson)
@@ -37,4 +42,4 @@ fun createHttpClient(engine: HttpClientEngine = platformHttpEngine()): HttpClien
             socketTimeoutMillis = 30_000
         }
         defaultRequest { accept(ContentType.Application.Json) }
-    }
+    }.also { client -> tokens?.let(client::installBearerAuth) }

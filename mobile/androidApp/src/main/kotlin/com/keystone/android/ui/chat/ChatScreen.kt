@@ -112,7 +112,11 @@ fun ChatScreen(
             )
         },
     ) { innerPadding ->
-        if (state.messages.isEmpty()) {
+        if (state.messages.isEmpty() && state.isLoadingHistory) {
+            Box(Modifier.padding(innerPadding).fillMaxSize(), contentAlignment = Alignment.Center) {
+                TypingIndicator()
+            }
+        } else if (state.messages.isEmpty()) {
             EmptyChat(onSuggestion = onSuggestion, modifier = Modifier.padding(innerPadding))
         } else {
             MessageList(state.messages, onRetry, Modifier.padding(innerPadding))
