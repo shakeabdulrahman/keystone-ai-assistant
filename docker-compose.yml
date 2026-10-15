@@ -23,6 +23,9 @@ services:
         required: false
     environment:
       DATABASE_URL: postgresql+asyncpg://keystone:keystone@db:5432/keystone
+      # Ollama runs on your Mac, outside Docker. host.docker.internal is the Mac as seen
+      # from inside a container (Docker Desktop provides it).
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
     # Apply migrations, then start the server.
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     ports:

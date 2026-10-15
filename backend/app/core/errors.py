@@ -30,7 +30,12 @@ _STATUS_CODES = {
 
 
 def problem(
-    status: int, code: str, title: str, detail: str | None = None, **extra: Any
+    status: int,
+    code: str,
+    title: str,
+    detail: str | None = None,
+    headers: dict[str, str] | None = None,
+    **extra: Any,
 ) -> JSONResponse:
     body: dict[str, Any] = {
         "type": f"https://keystone.dev/problems/{code}",
@@ -42,14 +47,15 @@ def problem(
     if detail:
         body["detail"] = detail
     body.update(extra)
-    return JSONResponse(body, status_code=status, media_type=PROBLEM_JSON)
+    return JSONResponse(body, status_code=status, media_type=PROBLEM_JSON, headers=headers)
 
 
 async def _http_exception(_: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, StarletteHTTPException)
     code = _STATUS_CODES.get(exc.status_code, "http_error")
     detail = exc.detail if isinstance(exc.detail, str) else None
-    return problem(exc.status_code, code, code.replace("_", " ").capitalize(), detail)
+    headers = getattr(exc, "headers", None)  # e.g. WWW-Authenticate on 401
+    return problem(exc.status_code, code, code.replace("_", " ").capitalize(), detail, headers)
 
 
 async def _validation_exception(_: Request, exc: Exception) -> JSONResponse:

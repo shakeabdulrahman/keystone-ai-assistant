@@ -6,7 +6,7 @@ Secrets are `SecretStr` so they never appear in logs, reprs or error pages.
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["local", "test", "staging", "production"]
@@ -26,8 +26,33 @@ class Settings(BaseSettings):
     )
     database_pool_size: int = 5
 
-    # Selected at startup; implementations arrive in Phase 1.
+    # --- Authentication -------------------------------------------------------------
+    # firebase: verify Firebase ID tokens (production). dev: accept "dev:<user>" tokens and
+    # treat requests without a token as a local test user. dev is refused in production.
+    auth_mode: Literal["firebase", "dev"] = "dev"
+    firebase_project_id: str | None = None
+
+    # --- AI provider -------------------------------------------------------------
     llm_provider: LlmProviderName = "fake"
+    llm_timeout_s: float = 120.0
+    fake_llm_delay_s: float = 0.03  # makes the fake provider look like real streaming
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "qwen2.5:7b"
+
+    # --- Chat limits ----------------------------------------------------------------
+    chat_max_input_chars: int = 4000
+    chat_history_messages: int = 20  # recent messages sent to the model as context
+    chat_max_output_tokens: int = 1024
+    sse_heartbeat_s: float = 15.0
+    title_generation_enabled: bool = True
+
+    @model_validator(mode="after")
+    def _check_auth(self) -> "Settings":
+        if self.is_production and self.auth_mode == "dev":
+            raise ValueError("AUTH_MODE=dev is not allowed in production")
+        if self.auth_mode == "firebase" and not self.firebase_project_id:
+            raise ValueError("AUTH_MODE=firebase requires FIREBASE_PROJECT_ID")
+        return self
 
     @property
     def is_production(self) -> bool:

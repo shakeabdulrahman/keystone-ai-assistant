@@ -1,0 +1,9 @@
+event: message.started
+data: {"seq":1,"conversation_id":"3f0c2a8e-5d1b-4c7a-9e2f-1a2b3c4d5e6f","message_id":"0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f","user_message_id":"1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"}
+
+event: text.delta
+data: {"seq":2,"text":"Let me "}
+
+event: error
+data: {"seq":3,"code":"ai_unavailable","message":"The assistant is unavailable right now. Please try again in a moment.","retryable":true}
+

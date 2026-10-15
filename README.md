@@ -2,7 +2,7 @@
 
 An AI-powered mobile assistant for employees: ask about leave, HR requests, onboarding and company policies by text or voice. The assistant answers from live HR data through **tool calling**, from company documents through **RAG**, streams its replies, and renders real app UI (cards, confirmations, sources) instead of plain text.
 
-> Status: **Phase 0 — Foundations** complete. See the [roadmap](#roadmap). The full README (architecture diagrams, screenshots, demo video) arrives in Phase 8.
+> Status: **Phase 2A — Accounts and persistent conversations (backend)** complete. See the [roadmap](#roadmap). The full README (architecture diagrams, screenshots, demo video) arrives in Phase 8.
 
 ## Architecture at a glance
 
@@ -30,6 +30,7 @@ The mobile app never holds AI keys. Changing LLM vendor changes one backend adap
 | `mobile/` | Android app, KMP `shared` module, design system |
 | `docs/adr/` | Architecture Decision Records |
 | `docs/phases/` | What was built in each phase and why |
+| `contracts/` | Stream event contract + fixtures shared by backend and mobile tests |
 | `.github/workflows/` | CI for backend and Android |
 | `docker-compose.yml` | Local Postgres + pgvector and the API |
 
@@ -38,15 +39,17 @@ The mobile app never holds AI keys. Changing LLM vendor changes one backend adap
 Prerequisites: Docker Desktop, Android Studio (latest stable), JDK 17+.
 
 ```bash
-# 1. Backend + database
+# 1. Backend + database (Ollama running locally with: ollama pull qwen2.5:7b)
 cp backend/.env.example backend/.env
 docker compose up --build
 curl http://localhost:8000/healthz      # {"status":"ok"}
 curl http://localhost:8000/readyz       # database + pgvector checks
+curl -N -X POST http://localhost:8000/v1/chat -H 'content-type: application/json' \
+  -d '{"client_message_id":"'$(uuidgen)'","content":"How do I request annual leave?"}'
 
 # 2. Android
 #    Open the mobile/ folder in Android Studio and run the "androidApp" configuration
-#    on an emulator. The home screen shows "Backend connected".
+#    on an emulator. Home shows "Backend connected"; tap "Ask Keystone" to chat.
 ```
 
 Backend without Docker (needs a local Postgres with pgvector):
@@ -64,8 +67,8 @@ uv run pytest
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 0 | Foundations: repo, backend skeleton, KMP + Android skeleton, CI | Done |
-| 1 | Streaming chat (SSE, provider abstraction, Fake + Ollama) | Next |
-| 2 | Firebase sign-in, conversations and history, offline cache | |
+| 1 | Streaming chat (SSE, provider abstraction, Fake + Ollama) | Done |
+| 2 | Firebase sign-in, conversations and history, offline cache | Backend done (2A); app next (2B) |
 | 3 | Tool calling + generative UI cards | |
 | 4 | RAG over HR documents with citations | |
 | 5 | Write actions with user confirmation | |

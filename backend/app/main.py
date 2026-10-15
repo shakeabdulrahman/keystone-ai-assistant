@@ -6,12 +6,17 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import health
+from app.ai.llm.factory import create_llm_provider
+from app.api import auth, chat, conversations, health
+from app.core.auth import DevTokenVerifier, FirebaseTokenVerifier, TokenVerifier
 from app.core.config import Settings, get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import RequestContextMiddleware
 from app.db.session import Database
+from app.repositories.sql import SqlConversationRepository, SqlUserRepository
+from app.services.chat_service import ChatService
+from app.services.titles import TitleGenerator
 
 logger = logging.getLogger("keystone")
 
@@ -31,7 +36,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
         )
         yield
+        if app.state.titles is not None:
+            await app.state.titles.drain()
         await app.state.db.dispose()
+        aclose = getattr(app.state.llm, "aclose", None)
+        if aclose is not None:
+            await aclose()
         logger.info("shutdown")
 
     app = FastAPI(
@@ -44,11 +54,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.db = Database(settings)  # engine connects lazily on first use
+    app.state.llm = create_llm_provider(settings)
+    app.state.token_verifier = _token_verifier(settings)
+    app.state.users = SqlUserRepository(app.state.db.session_factory)
+    app.state.conversations = SqlConversationRepository(app.state.db.session_factory)
+    app.state.titles = (
+        TitleGenerator(app.state.llm, app.state.conversations)
+        if settings.title_generation_enabled
+        else None
+    )
+    app.state.chat_service = ChatService(
+        app.state.llm,
+        app.state.conversations,
+        history_messages=settings.chat_history_messages,
+        max_output_tokens=settings.chat_max_output_tokens,
+        titles=app.state.titles,
+    )
 
     app.add_middleware(RequestContextMiddleware)
     register_error_handlers(app)
     app.include_router(health.router)
+    app.include_router(auth.router)
+    app.include_router(chat.router)
+    app.include_router(conversations.router)
     return app
+
+
+def _token_verifier(settings: Settings) -> TokenVerifier:
+    if settings.auth_mode == "firebase":
+        assert settings.firebase_project_id  # enforced by Settings validation
+        return FirebaseTokenVerifier(settings.firebase_project_id)
+    logger.warning("auth_dev_mode", extra={"note": "dev tokens accepted; never use in production"})
+    return DevTokenVerifier()
 
 
 app = create_app()

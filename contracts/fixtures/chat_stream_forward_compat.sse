@@ -1,0 +1,12 @@
+event: message.started
+data: {"seq":1,"conversation_id":"3f0c2a8e-5d1b-4c7a-9e2f-1a2b3c4d5e6f","message_id":"7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d","user_message_id":"2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e","future_field":"ignored"}
+
+event: tool.started
+data: {"seq":2,"call_id":"t_1","tool":"getLeaveBalance"}
+
+event: text.delta
+data: {"seq":3,"text":"Done.","future_field":true}
+
+event: message.completed
+data: {"seq":4,"message_id":"7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d","finish_reason":"stop","usage":{"input_tokens":10,"output_tokens":2}}
+

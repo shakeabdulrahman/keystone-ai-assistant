@@ -1,0 +1,17 @@
+: keep-alive
+
+event: message.started
+data: {"seq":1,"conversation_id":"3f0c2a8e-5d1b-4c7a-9e2f-1a2b3c4d5e6f","message_id":"9b1d7c3e-2a4f-4e6b-8c0d-7e8f9a0b1c2d","user_message_id":"5e6f7a8b-9c0d-4e1f-a2b3-c4d5e6f7a8b9"}
+
+event: text.delta
+data: {"seq":2,"text":"Hi! "}
+
+event: text.delta
+data: {"seq":3,"text":"I can help with "}
+
+event: text.delta
+data: {"seq":4,"text":"leave and HR questions."}
+
+event: message.completed
+data: {"seq":5,"message_id":"9b1d7c3e-2a4f-4e6b-8c0d-7e8f9a0b1c2d","finish_reason":"stop","usage":{"input_tokens":42,"output_tokens":9}}
+
