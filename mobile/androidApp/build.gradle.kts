@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -10,11 +11,18 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
-// Backend URL for debug builds. Default reaches the host machine from the Android emulator.
-// Override in ~/.gradle/gradle.properties or with -Pkeystone.apiBaseUrl=... (never commit secrets here).
-val debugApiBaseUrl: String = providers.gradleProperty("keystone.apiBaseUrl")
-    .orElse("http://10.0.2.2:8000")
-    .get()
+// Backend URL for debug builds, per machine. Looked up in this order:
+//   1. mobile/local.properties   keystone.apiBaseUrl=...   (not committed; best for your own setup)
+//   2. a Gradle property          -Pkeystone.apiBaseUrl=...
+//   3. default http://10.0.2.2:8000, which is the host machine as seen from the Android emulator.
+// Physical phone over USB: set http://localhost:8000 and run `adb reverse tcp:8000 tcp:8000`.
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+val debugApiBaseUrl: String = localProperties.getProperty("keystone.apiBaseUrl")
+    ?: providers.gradleProperty("keystone.apiBaseUrl").orNull
+    ?: "http://10.0.2.2:8000"
 
 android {
     namespace = "com.keystone.android"
