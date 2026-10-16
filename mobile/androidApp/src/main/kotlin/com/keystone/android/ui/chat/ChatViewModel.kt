@@ -5,14 +5,21 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.keystone.android.ui.chat.ChatMessageUi.Role
 import com.keystone.android.ui.chat.ChatMessageUi.Status
+import com.keystone.android.voice.SpeechError
+import com.keystone.android.voice.SpeechEvent
+import com.keystone.android.voice.SpeechInput
+import com.keystone.android.voice.SpeechOutput
 import com.keystone.shared.core.AppError
 import com.keystone.shared.core.AppResult
 import com.keystone.shared.domain.model.ChatEvent
+import com.keystone.shared.domain.model.InputMode
 import com.keystone.shared.domain.model.PendingAction
 import com.keystone.shared.domain.model.StoredMessage
 import com.keystone.shared.domain.repository.ActionRepository
 import com.keystone.shared.domain.repository.ChatRepository
 import com.keystone.shared.domain.repository.ConversationRepository
+import com.keystone.shared.voice.SentenceChunker
+import com.keystone.shared.voice.speakable
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -40,6 +47,11 @@ import kotlin.time.TimeSource
  * - Text deltas are buffered and flushed to UI state at most every [FLUSH_INTERVAL], so a
  *   fast model doesn't trigger a recomposition for every token.
  *
+ * Voice: the mic streams a live transcript into the input field and sends it when the
+ * person stops talking, marked as spoken. Answers to spoken questions (or all answers,
+ * with read-aloud on) are spoken sentence by sentence while they stream in. Tapping the
+ * mic while it speaks interrupts it ("barge-in"). Confirmation cards still need a tap.
+ *
  * Opening a past conversation shows the cached history at once, then the server's copy.
  * After each answer the cache is refreshed in the background, so history works offline.
  */
@@ -48,22 +60,85 @@ class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
     private val conversationRepository: ConversationRepository,
     private val actionRepository: ActionRepository,
+    private val speechInput: SpeechInput,
+    private val speechOutput: SpeechOutput,
     savedStateHandle: SavedStateHandle,
     private val timeSource: TimeSource,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(ChatUiState())
+    private val _uiState = MutableStateFlow(ChatUiState(voice = VoiceUi(micAvailable = speechInput.isAvailable)))
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     /** Assigned by the server on the first reply; reused for follow-ups so the model has context. */
     private var conversationId: String? = savedStateHandle.get<String>(CONVERSATION_ID_ARG)
     private var replyJob: Job? = null
+    private var listenJob: Job? = null
 
     /** Messages typed in this session; history never overwrites them. */
     private var sentThisSession = 0
 
     init {
         conversationId?.let(::loadHistory)
+        viewModelScope.launch {
+            speechOutput.speaking.collect { speaking -> updateVoice { it.copy(speaking = speaking) } }
+        }
+    }
+
+    // --- Voice -----------------------------------------------------------------------
+
+    /**
+     * The mic button. Idle: start listening (interrupting speech or an answer in progress).
+     * Listening: "I'm done", so finish and send what was heard.
+     */
+    fun onMicPressed() {
+        if (_uiState.value.voice.listening) {
+            speechInput.stop()
+            return
+        }
+        speechOutput.stop() // barge-in: stop talking as soon as the person wants to speak
+        if (_uiState.value.isResponding) onStop()
+        updateVoice { it.copy(listening = true, error = null) }
+        // Subscribe now, not inside the coroutine: nothing the microphone hears in between
+        // can be missed (the flow is cold, so the mic still opens only when collected).
+        val heard = speechInput.listen()
+        listenJob = viewModelScope.launch {
+            heard.collect { event ->
+                when (event) {
+                    SpeechEvent.Ready -> Unit
+                    is SpeechEvent.Partial -> _uiState.update { it.copy(input = event.text.take(MAX_MESSAGE_CHARS)) }
+                    is SpeechEvent.Final -> {
+                        updateVoice { it.copy(listening = false) }
+                        send(event.text, InputMode.Voice)
+                    }
+                    is SpeechEvent.Error -> updateVoice { it.copy(listening = false, error = event.reason) }
+                }
+            }
+            updateVoice { it.copy(listening = false) } // ended without a result (e.g. cancelled)
+        }
+    }
+
+    /** The person refused the microphone permission. */
+    fun onMicPermissionDenied() = updateVoice { it.copy(listening = false, error = SpeechError.NoPermission) }
+
+    fun onDismissVoiceError() = updateVoice { it.copy(error = null) }
+
+    /** The speaker button: read typed answers aloud too, or stop reading. */
+    fun onToggleReadAloud() {
+        val on = !_uiState.value.voice.readAloud
+        if (!on) speechOutput.stop()
+        updateVoice { it.copy(readAloud = on) }
+    }
+
+    private fun shouldSpeak(mode: InputMode): Boolean =
+        speechOutput.autoSpeakAllowed && (mode == InputMode.Voice || _uiState.value.voice.readAloud)
+
+    private fun updateVoice(transform: (VoiceUi) -> VoiceUi) {
+        _uiState.update { it.copy(voice = transform(it.voice)) }
+    }
+
+    override fun onCleared() {
+        listenJob?.cancel()
+        speechOutput.stop() // leaving the chat must not leave it talking
     }
 
     private fun loadHistory(id: String) {
@@ -92,12 +167,13 @@ class ChatViewModel @Inject constructor(
         _uiState.update { it.copy(input = text.take(MAX_MESSAGE_CHARS)) }
     }
 
-    fun onSend() = send(_uiState.value.input)
+    fun onSend() = send(_uiState.value.input, InputMode.Text)
 
-    fun onSuggestion(text: String) = send(text)
+    fun onSuggestion(text: String) = send(text, InputMode.Text)
 
     /** Stop generating. The partial answer stays on screen, marked as stopped. */
     fun onStop() {
+        speechOutput.stop()
         replyJob?.cancel()
         replyJob = null
         _uiState.update { state ->
@@ -117,23 +193,19 @@ class ChatViewModel @Inject constructor(
         if (index <= 0 || _uiState.value.isResponding) return
         val question = messages.subList(0, index).lastOrNull { it.role == Role.User } ?: return
         _uiState.update { it.copy(messages = it.messages.filterNot { m -> m.id == failedMessageId }) }
-        streamReply(question.text)
+        streamReply(question.text, if (question.spoken) InputMode.Voice else InputMode.Text)
     }
 
-    private fun send(raw: String) {
+    private fun send(raw: String, mode: InputMode) {
         val content = raw.trim()
         if (content.isEmpty() || _uiState.value.isResponding) return
         sentThisSession++
-        _uiState.update {
-            it.copy(
-                input = "",
-                messages = it.messages + ChatMessageUi(newId(), Role.User, content),
-            )
-        }
-        streamReply(content)
+        val question = ChatMessageUi(newId(), Role.User, content, spoken = mode == InputMode.Voice)
+        _uiState.update { it.copy(input = "", messages = it.messages + question) }
+        streamReply(content, mode)
     }
 
-    private fun streamReply(question: String) {
+    private fun streamReply(question: String, mode: InputMode) {
         val replyId = newId()
         _uiState.update {
             it.copy(
@@ -145,6 +217,13 @@ class ChatViewModel @Inject constructor(
         replyJob = viewModelScope.launch {
             val pending = StringBuilder()
             var lastFlush = timeSource.markNow()
+            // Speak sentence by sentence as the answer streams in, not after it ends.
+            val sentences = if (shouldSpeak(mode)) SentenceChunker() else null
+
+            fun say(text: String?) {
+                val words = text?.let(::speakable).orEmpty()
+                if (words.isNotEmpty()) speechOutput.speak(words)
+            }
 
             fun flush(status: Status = Status.Streaming, failure: ChatEvent.Failed? = null) {
                 val chunk = pending.toString()
@@ -158,10 +237,11 @@ class ChatViewModel @Inject constructor(
 
             try {
                 // A new client message ID per attempt: retries are new messages to the server.
-                chatRepository.sendMessage(conversationId, newId(), question).collect { event ->
+                chatRepository.sendMessage(conversationId, newId(), question, mode).collect { event ->
                     when (event) {
                         is ChatEvent.Started -> conversationId = event.conversationId
                         is ChatEvent.Delta -> {
+                            sentences?.add(event.text)?.forEach(::say)
                             pending.append(event.text)
                             if (lastFlush.elapsedNow() >= FLUSH_INTERVAL) flush()
                         }
@@ -194,7 +274,10 @@ class ChatViewModel @Inject constructor(
                             flush()
                             updateMessage(replyId) { it.copy(citations = event.items) }
                         }
-                        is ChatEvent.Completed -> flush(Status.Complete)
+                        is ChatEvent.Completed -> {
+                            sentences?.let { say(it.finish()) }
+                            flush(Status.Complete)
+                        }
                         is ChatEvent.Failed -> flush(Status.Failed, event)
                     }
                 }

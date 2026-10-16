@@ -1,5 +1,6 @@
 package com.keystone.android.ui.chat
 
+import com.keystone.android.voice.SpeechError
 import com.keystone.shared.core.AppError
 import com.keystone.shared.domain.model.Citation
 import com.keystone.shared.domain.model.PendingAction
@@ -11,6 +12,7 @@ data class ChatUiState(
     val isResponding: Boolean = false,
     /** Opening a past conversation: true until its history has been shown. */
     val isLoadingHistory: Boolean = false,
+    val voice: VoiceUi = VoiceUi(),
 ) {
     val canSend: Boolean get() = input.isNotBlank() && !isResponding
 }
@@ -27,6 +29,8 @@ data class ChatMessageUi(
     val citations: List<Citation> = emptyList(),
     /** Changes the answer prepared, shown as confirmation cards. */
     val actions: List<ActionUi> = emptyList(),
+    /** A question asked by voice (its retry is spoken again too). */
+    val spoken: Boolean = false,
 ) {
     enum class Role { User, Assistant }
 
@@ -50,6 +54,17 @@ data class ToolActivityUi(
 ) {
     enum class State { Running, Done, Failed }
 }
+
+/** Microphone and read-aloud state for the composer and the top bar. */
+data class VoiceUi(
+    /** Speech recognition exists on this device; otherwise the mic button is hidden. */
+    val micAvailable: Boolean = false,
+    val listening: Boolean = false,
+    val speaking: Boolean = false,
+    /** Read every answer aloud, also typed ones (the speaker button). */
+    val readAloud: Boolean = false,
+    val error: SpeechError? = null,
+)
 
 /** A confirmation card. The server's [action] status decides which buttons are shown. */
 data class ActionUi(

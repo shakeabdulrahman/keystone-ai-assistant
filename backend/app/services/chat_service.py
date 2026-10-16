@@ -19,7 +19,7 @@ import uuid
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 import anyio
 from fastapi import HTTPException
@@ -69,6 +69,8 @@ from app.services.titles import TitleGenerator, fallback_title
 
 logger = logging.getLogger("keystone.chat")
 
+InputMode = Literal["text", "voice"]
+
 # What users see for each failure. Internal details stay in the logs.
 _USER_MESSAGES = {
     "ai_unavailable": "The assistant is unavailable right now. Please try again in a moment.",
@@ -102,6 +104,7 @@ class ChatTurn:
     user_message_id: uuid.UUID
     history: list[ChatMessage]  # oldest first, ends with the new user message
     is_first_exchange: bool
+    input_mode: InputMode = "text"
 
 
 class ChatService:
@@ -130,6 +133,7 @@ class ChatService:
         conversation_id: uuid.UUID | None,
         client_message_id: str,
         content: str,
+        input_mode: InputMode = "text",
     ) -> ChatTurn:
         user_id = user.id
         if conversation_id is None:
@@ -159,11 +163,11 @@ class ChatService:
             ChatMessage(role=m.role, content=m.content + outcomes.get(m.id, "")) for m in kept
         ]
         is_first = not conversation.title_generated and len(recent) == 1
-        return ChatTurn(user, conversation.id, user_message.id, history, is_first)
+        return ChatTurn(user, conversation.id, user_message.id, history, is_first, input_mode)
 
     async def stream_turn(self, turn: ChatTurn) -> AsyncGenerator[StreamEvent, None]:
         today = self._clock().date()
-        system = system_prompt(today)
+        system = system_prompt(today, voice=turn.input_mode == "voice")
         tool_specs = self._tools.registry.specs() if self._tools else []
         max_steps = self._tools.max_steps if self._tools else 1
         working: list[ChatMessage] = list(turn.history)  # grows with tool calls/results
@@ -317,6 +321,7 @@ class ChatService:
                     "provider": self._provider.name,
                     "model": self._provider.model,
                     "prompt_version": SYSTEM_PROMPT_VERSION,
+                    "input_mode": turn.input_mode,
                     "status": status,
                     "finish_reason": finish,
                     "history_messages": len(turn.history),

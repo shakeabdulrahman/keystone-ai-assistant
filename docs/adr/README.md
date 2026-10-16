@@ -15,3 +15,4 @@ Short records of the decisions that shape Keystone. Each one states the context,
 | [0009](0009-hosting.md) | Hosting: local first, free tier later |
 | [0010](0010-rag-retrieval-design.md) | RAG: search as a tool, hybrid retrieval, server-verified citations |
 | [0011](0011-confirmed-actions.md) | Write actions: model proposes, user confirms, server executes once |
+| [0012](0012-on-device-voice.md) | Voice: on-device speech services, sentence-by-sentence streaming speech |

@@ -176,3 +176,28 @@ async def test_failed_exchange_is_not_sent_back_as_context() -> None:
         provider.fail_with = None
         await send(c, "What is my leave balance?", cid)  # the user's retry
     assert [m.content for m in provider.requests[-1].messages] == ["What is my leave balance?"]
+
+
+async def test_voice_questions_get_spoken_answer_rules() -> None:
+    import uuid as _uuid
+
+    from httpx import ASGITransport, AsyncClient
+
+    from app.ai.llm.fake import FakeLLMProvider
+    from tests.conftest import as_user, build_test_app
+
+    harness = build_test_app(FakeLLMProvider("Fourteen days."))
+    async with AsyncClient(transport=ASGITransport(app=harness.app), base_url="http://test") as c:
+        for mode in ("voice", None):
+            body = {"client_message_id": str(_uuid.uuid4()), "content": "How many days?"}
+            if mode:
+                body["input_mode"] = mode
+            assert (
+                await c.post("/v1/chat", json=body, headers=as_user("alice"))
+            ).status_code == 200
+        bad = {"client_message_id": str(_uuid.uuid4()), "content": "Hi", "input_mode": "telepathy"}
+        assert (await c.post("/v1/chat", json=bad, headers=as_user("alice"))).status_code == 422
+
+    voice, typed = harness.provider.requests[0].system, harness.provider.requests[-1].system
+    assert "read aloud" in voice and 'a spoken "yes" does not confirm anything' in voice
+    assert "read aloud" not in typed  # text questions are unchanged (old apps send no mode)

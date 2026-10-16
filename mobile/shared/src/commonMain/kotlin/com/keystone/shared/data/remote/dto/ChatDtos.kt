@@ -9,6 +9,8 @@ internal data class ChatRequestDto(
     @SerialName("conversation_id") val conversationId: String? = null,
     @SerialName("client_message_id") val clientMessageId: String,
     @SerialName("content") val content: String,
+    /** "voice" asks for short spoken answers; omitted (default) means "text". */
+    @SerialName("input_mode") val inputMode: String = "text",
 )
 
 @Serializable

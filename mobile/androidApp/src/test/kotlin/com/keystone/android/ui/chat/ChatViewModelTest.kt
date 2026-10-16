@@ -3,12 +3,17 @@ package com.keystone.android.ui.chat
 import androidx.lifecycle.SavedStateHandle
 import com.keystone.android.MainDispatcherRule
 import com.keystone.android.fakes.FakeConversationRepository
+import com.keystone.android.fakes.FakeSpeechInput
+import com.keystone.android.fakes.FakeSpeechOutput
 import com.keystone.android.ui.chat.ChatMessageUi.Role
 import com.keystone.android.ui.chat.ChatMessageUi.Status
+import com.keystone.android.voice.SpeechError
+import com.keystone.android.voice.SpeechEvent
 import com.keystone.shared.core.AppError
 import com.keystone.shared.core.AppResult
 import com.keystone.shared.domain.model.ChatEvent
 import com.keystone.shared.domain.model.Citation
+import com.keystone.shared.domain.model.InputMode
 import com.keystone.shared.domain.model.PendingAction
 import com.keystone.shared.domain.model.StoredMessage
 import com.keystone.shared.domain.model.TokenUsage
@@ -39,14 +44,24 @@ class ChatViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
 
-    private data class Call(val conversationId: String?, val clientMessageId: String, val content: String)
+    private data class Call(
+        val conversationId: String?,
+        val clientMessageId: String,
+        val content: String,
+        val mode: InputMode = InputMode.Text,
+    )
 
     /** Hand-written fake: each call replays the next scripted flow and records its arguments. */
     private class FakeChatRepository(vararg scripts: Flow<ChatEvent>) : ChatRepository {
         private val queue = ArrayDeque(scripts.toList())
         val calls = mutableListOf<Call>()
-        override fun sendMessage(conversationId: String?, clientMessageId: String, content: String): Flow<ChatEvent> {
-            calls += Call(conversationId, clientMessageId, content)
+        override fun sendMessage(
+            conversationId: String?,
+            clientMessageId: String,
+            content: String,
+            inputMode: InputMode,
+        ): Flow<ChatEvent> {
+            calls += Call(conversationId, clientMessageId, content, inputMode)
             return queue.removeFirst()
         }
     }
@@ -80,6 +95,8 @@ class ChatViewModelTest {
     }
 
     private val actions = FakeActions()
+    private val mic = FakeSpeechInput()
+    private val speaker = FakeSpeechOutput()
 
     private fun kotlinx.coroutines.test.TestScope.viewModel(
         repo: ChatRepository,
@@ -88,6 +105,8 @@ class ChatViewModelTest {
         repo,
         history,
         actions,
+        mic,
+        speaker,
         SavedStateHandle(mapOf(ChatViewModel.CONVERSATION_ID_ARG to conversationId)),
         testScheduler.timeSource,
     )
@@ -499,5 +518,163 @@ class ChatViewModelTest {
         val vm = viewModel(FakeChatRepository())
         vm.onInputChange("x".repeat(MAX_MESSAGE_CHARS + 50))
         assertEquals(MAX_MESSAGE_CHARS, vm.uiState.value.input.length)
+    }
+
+    // --- Voice ------------------------------------------------------------------------
+
+    @Test
+    fun `speaking a question shows the live transcript then sends it as voice`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val repo = FakeChatRepository(reply("c1", "Fourteen days ", "left."))
+            val vm = viewModel(repo)
+
+            vm.onMicPressed()
+            runCurrent()
+            assertTrue(vm.uiState.value.voice.listening)
+            mic.hear(SpeechEvent.Partial("how many leave"))
+            runCurrent()
+            assertEquals("how many leave", vm.uiState.value.input) // live transcript in the field
+
+            mic.hear(SpeechEvent.Final("How many leave days do I have"))
+            advanceUntilIdle()
+
+            assertEquals(InputMode.Voice, repo.calls.single().mode)
+            assertEquals("How many leave days do I have", repo.calls.single().content)
+            val question = vm.uiState.value.messages.first()
+            assertTrue(question.spoken)
+            assertFalse(vm.uiState.value.voice.listening)
+            assertEquals("", vm.uiState.value.input)
+        }
+
+    @Test
+    fun `answers to spoken questions are read aloud sentence by sentence while streaming`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val vm = viewModel(
+                FakeChatRepository(
+                    reply("c1", "You can carry over ", "up to 5 days [1]. ", "They expire on ", "31 March.", gapMs = 100),
+                ),
+            )
+            vm.onMicPressed()
+            mic.hear(SpeechEvent.Final("Can I carry over leave?"))
+            advanceTimeBy(350)
+            runCurrent()
+
+            // The first sentence is spoken before the answer has finished arriving.
+            assertEquals(listOf("You can carry over up to 5 days."), speaker.spoken)
+            assertTrue(vm.uiState.value.isResponding)
+
+            advanceUntilIdle()
+            assertEquals(listOf("You can carry over up to 5 days.", "They expire on 31 March."), speaker.spoken)
+        }
+
+    @Test
+    fun `typed questions are silent unless read aloud is switched on`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val vm = viewModel(FakeChatRepository(reply("c1", "Hello there."), reply("c1", "Second answer.")))
+            vm.onSuggestion("Hi")
+            advanceUntilIdle()
+            assertEquals(emptyList<String>(), speaker.spoken)
+
+            vm.onToggleReadAloud()
+            vm.onSuggestion("Again")
+            advanceUntilIdle()
+            assertEquals(listOf("Second answer."), speaker.spoken)
+
+            vm.onToggleReadAloud() // off again: stops immediately
+            assertTrue(speaker.stops > 0)
+        }
+
+    @Test
+    fun `with a screen reader on, nothing is read aloud automatically`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            speaker.autoSpeakAllowed = false
+            val vm = viewModel(FakeChatRepository(reply("c1", "Hello there.")))
+            vm.onMicPressed()
+            mic.hear(SpeechEvent.Final("Hi"))
+            advanceUntilIdle()
+            assertEquals(emptyList<String>(), speaker.spoken)
+        }
+
+    @Test
+    fun `tapping the mic while an answer streams interrupts it`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val endless = flow<ChatEvent> {
+                emit(ChatEvent.Started("c1", "m1", "u1"))
+                emit(ChatEvent.Delta("This is a very long answer. "))
+                awaitCancellation()
+            }
+            val vm = viewModel(FakeChatRepository(endless))
+            vm.onSuggestion("Tell me everything")
+            runCurrent()
+            assertTrue(vm.uiState.value.isResponding)
+
+            vm.onMicPressed()
+            runCurrent()
+
+            assertFalse(vm.uiState.value.isResponding)
+            assertEquals(Status.Stopped, vm.uiState.value.messages.last().status)
+            assertTrue(speaker.stops > 0)
+            assertTrue(vm.uiState.value.voice.listening)
+        }
+
+    @Test
+    fun `tapping the mic again finishes listening`() = runTest(mainDispatcherRule.dispatcher) {
+        val vm = viewModel(FakeChatRepository())
+        vm.onMicPressed()
+        runCurrent()
+        vm.onMicPressed()
+        assertEquals(1, mic.stops)
+        assertEquals(1, mic.listens) // didn't start a second session
+    }
+
+    @Test
+    fun `recognition problems are shown and nothing is sent`() = runTest(mainDispatcherRule.dispatcher) {
+        val repo = FakeChatRepository()
+        val vm = viewModel(repo)
+        vm.onMicPressed()
+        mic.hear(SpeechEvent.Error(SpeechError.NoMatch))
+        advanceUntilIdle()
+
+        assertEquals(SpeechError.NoMatch, vm.uiState.value.voice.error)
+        assertFalse(vm.uiState.value.voice.listening)
+        assertTrue(repo.calls.isEmpty())
+
+        vm.onDismissVoiceError()
+        assertEquals(null, vm.uiState.value.voice.error)
+        vm.onMicPermissionDenied()
+        assertEquals(SpeechError.NoPermission, vm.uiState.value.voice.error)
+    }
+
+    @Test
+    fun `retrying a spoken question asks for a spoken answer again`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val failing = flow<ChatEvent> {
+                emit(ChatEvent.Started("c1", "m1", "u1"))
+                emit(ChatEvent.Failed(AppError.Network))
+            }
+            val repo = FakeChatRepository(failing, reply("c1", "Fine now."))
+            val vm = viewModel(repo)
+            vm.onMicPressed()
+            mic.hear(SpeechEvent.Final("Hello"))
+            advanceUntilIdle()
+
+            vm.onRetry(vm.uiState.value.messages.last().id)
+            advanceUntilIdle()
+
+            assertEquals(listOf(InputMode.Voice, InputMode.Voice), repo.calls.map { it.mode })
+        }
+
+    @Test
+    fun `devices without speech recognition hide the mic`() = runTest(mainDispatcherRule.dispatcher) {
+        val vm = ChatViewModel(
+            FakeChatRepository(),
+            history,
+            actions,
+            FakeSpeechInput(isAvailable = false),
+            speaker,
+            SavedStateHandle(),
+            testScheduler.timeSource,
+        )
+        assertFalse(vm.uiState.value.voice.micAvailable)
     }
 }

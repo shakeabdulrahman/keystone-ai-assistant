@@ -1,5 +1,9 @@
 package com.keystone.android.ui.chat
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -33,11 +37,12 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -47,12 +52,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.keystone.android.R
@@ -60,6 +70,7 @@ import com.keystone.android.ui.chat.ChatMessageUi.Role
 import com.keystone.android.ui.chat.ChatMessageUi.Status
 import com.keystone.android.ui.chat.cards.ConfirmationCard
 import com.keystone.android.ui.chat.cards.ToolActivity
+import com.keystone.android.voice.SpeechError
 import com.keystone.designsystem.theme.KeystoneTheme
 import com.keystone.shared.core.AppError
 import com.keystone.shared.core.isRetryable
@@ -73,6 +84,16 @@ fun ChatRoute(
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    // The microphone permission is asked for the first time the mic is tapped, not at launch.
+    val askForMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) viewModel.onMicPressed() else viewModel.onMicPermissionDenied()
+    }
+    val onMic = {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) viewModel.onMicPressed() else askForMic.launch(Manifest.permission.RECORD_AUDIO)
+    }
     ChatScreen(
         state = state,
         onBack = onBack,
@@ -84,6 +105,9 @@ fun ChatRoute(
         onOpenSource = onOpenSource,
         onConfirmAction = viewModel::onConfirmAction,
         onCancelAction = viewModel::onCancelAction,
+        onMic = onMic,
+        onToggleReadAloud = viewModel::onToggleReadAloud,
+        onDismissVoiceError = viewModel::onDismissVoiceError,
     )
 }
 
@@ -101,6 +125,9 @@ fun ChatScreen(
     onOpenSource: (Citation) -> Unit = {},
     onConfirmAction: (String) -> Unit = {},
     onCancelAction: (String) -> Unit = {},
+    onMic: () -> Unit = {},
+    onToggleReadAloud: () -> Unit = {},
+    onDismissVoiceError: () -> Unit = {},
 ) {
     Scaffold(
         modifier = modifier,
@@ -112,6 +139,15 @@ fun ChatScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back))
                     }
                 },
+                actions = {
+                    val readAloud = state.voice.readAloud
+                    IconButton(onClick = onToggleReadAloud) {
+                        Icon(
+                            if (readAloud) VoiceIcons.VolumeUp else VoiceIcons.VolumeOff,
+                            stringResource(if (readAloud) R.string.voice_read_aloud_on else R.string.voice_read_aloud_off),
+                        )
+                    }
+                },
             )
         },
         bottomBar = {
@@ -119,9 +155,12 @@ fun ChatScreen(
                 input = state.input,
                 canSend = state.canSend,
                 isResponding = state.isResponding,
+                voice = state.voice,
                 onInputChange = onInputChange,
                 onSend = onSend,
                 onStop = onStop,
+                onMic = onMic,
+                onDismissVoiceError = onDismissVoiceError,
             )
         },
     ) { innerPadding ->
@@ -373,41 +412,108 @@ private fun Composer(
     input: String,
     canSend: Boolean,
     isResponding: Boolean,
+    voice: VoiceUi,
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
+    onMic: () -> Unit,
+    onDismissVoiceError: () -> Unit,
 ) {
     Surface(tonalElevation = 2.dp) {
-        Row(
-            modifier = Modifier
+        Column(
+            Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .imePadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .imePadding(),
         ) {
-            OutlinedTextField(
-                value = input,
-                onValueChange = onInputChange,
-                placeholder = { Text(stringResource(R.string.chat_input_hint)) },
-                maxLines = 5,
-                modifier = Modifier.weight(1f),
-            )
-            if (isResponding) {
-                val stop = stringResource(R.string.action_stop)
-                FilledTonalIconButton(onClick = onStop, modifier = Modifier.semantics { contentDescription = stop }) {
-                    // A filled square is the universal "stop" symbol.
-                    Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.onSecondaryContainer))
+            voice.error?.let { error ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        voiceErrorText(error),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                    TextButton(onClick = onDismissVoiceError) { Text(stringResource(R.string.action_ok)) }
                 }
-            } else {
-                FilledIconButton(onClick = onSend, enabled = canSend) {
-                    Icon(Icons.AutoMirrored.Filled.Send, stringResource(R.string.action_send))
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = onInputChange,
+                    placeholder = {
+                        Text(stringResource(if (voice.listening) R.string.voice_listening else R.string.chat_input_hint))
+                    },
+                    maxLines = 5,
+                    modifier = Modifier.weight(1f),
+                )
+                // The mic replaces Send while the field is empty, and stays while listening.
+                val showMic = voice.micAvailable && !isResponding && (input.isBlank() || voice.listening)
+                if (showMic) {
+                    MicButton(listening = voice.listening, onClick = onMic)
+                } else if (isResponding) {
+                    val stop = stringResource(R.string.action_stop)
+                    FilledTonalIconButton(onClick = onStop, modifier = Modifier.semantics { contentDescription = stop }) {
+                        // A filled square is the universal "stop" symbol.
+                        Box(Modifier.size(14.dp).background(MaterialTheme.colorScheme.onSecondaryContainer))
+                    }
+                } else {
+                    FilledIconButton(onClick = onSend, enabled = canSend) {
+                        Icon(Icons.AutoMirrored.Filled.Send, stringResource(R.string.action_send))
+                    }
                 }
             }
         }
     }
 }
+
+@Composable
+private fun MicButton(listening: Boolean, onClick: () -> Unit) {
+    val description = stringResource(if (listening) R.string.voice_stop_listening else R.string.voice_start)
+    if (listening) {
+        // A gently pulsing button: visibly "on air", and tapping it again finishes.
+        val transition = rememberInfiniteTransition(label = "mic")
+        val scale by transition.animateFloat(
+            initialValue = 1f,
+            targetValue = 1.12f,
+            animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
+            label = "micScale",
+        )
+        FilledIconButton(
+            onClick = onClick,
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError,
+            ),
+            modifier = Modifier.scale(scale).semantics { contentDescription = description },
+        ) { Icon(VoiceIcons.Mic, contentDescription = null) }
+    } else {
+        FilledTonalIconButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = description }) {
+            Icon(VoiceIcons.Mic, contentDescription = null)
+        }
+    }
+}
+
+@Composable
+private fun voiceErrorText(error: SpeechError): String = stringResource(
+    when (error) {
+        SpeechError.NoMatch -> R.string.voice_error_no_match
+        SpeechError.NoPermission -> R.string.voice_error_permission
+        SpeechError.Network -> R.string.voice_error_network
+        SpeechError.Busy -> R.string.voice_error_busy
+        SpeechError.Unavailable -> R.string.voice_error_unavailable
+        SpeechError.Other -> R.string.voice_error_other
+    },
+)
 
 @Composable
 private fun AppError?.toMessage(): String = when (this) {

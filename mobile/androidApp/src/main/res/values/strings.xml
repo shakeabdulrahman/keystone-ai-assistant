@@ -134,4 +134,17 @@
     <string name="action_error_other">That didn’t go through. Please try again.</string>
     <string name="chat_suggestion_action">Book annual leave on Monday and Tuesday after next</string>
     <string name="tool_status_cancelled">Cancelled</string>
+    <!-- Voice (Phase 6) -->
+    <string name="action_ok">OK</string>
+    <string name="voice_start">Ask by voice</string>
+    <string name="voice_stop_listening">Stop listening and send</string>
+    <string name="voice_listening">Listening…</string>
+    <string name="voice_read_aloud_on">Reading answers aloud. Tap to stop.</string>
+    <string name="voice_read_aloud_off">Read answers aloud</string>
+    <string name="voice_error_no_match">Didn’t catch that. Tap the mic and try again.</string>
+    <string name="voice_error_permission">Microphone access is needed to ask by voice. You can allow it in Settings.</string>
+    <string name="voice_error_network">Speech recognition needs a connection on this phone. Try typing instead.</string>
+    <string name="voice_error_busy">The microphone is busy. Try again in a moment.</string>
+    <string name="voice_error_unavailable">Speech recognition isn’t available on this device.</string>
+    <string name="voice_error_other">Voice input didn’t work. Try again or type your question.</string>
 </resources>

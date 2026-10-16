@@ -4,6 +4,7 @@ import com.keystone.shared.core.AppError
 import com.keystone.shared.data.remote.KeystoneApi
 import com.keystone.shared.data.remote.createHttpClient
 import com.keystone.shared.domain.model.ChatEvent
+import com.keystone.shared.domain.model.InputMode
 import com.keystone.shared.domain.model.TokenUsage
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandler
@@ -63,6 +64,19 @@ class ChatRepositoryImplTest {
             ),
             send(repo),
         )
+    }
+
+    @Test
+    fun voiceQuestionsSayHowTheyWereAsked() = runTest {
+        var body = ""
+        val repo = repository { request ->
+            body = request.body.toByteArray().decodeToString()
+            respond("", HttpStatusCode.OK, sseHeaders)
+        }
+
+        repo.sendMessage(null, "client-1", "Hello", InputMode.Voice).toList()
+
+        assertEquals("""{"client_message_id":"client-1","content":"Hello","input_mode":"voice"}""", body)
     }
 
     @Test

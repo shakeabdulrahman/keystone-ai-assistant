@@ -14,5 +14,7 @@ def _load(name: str) -> str:
     return (_DIR / name).read_text(encoding="utf-8")
 
 
-def system_prompt(today: date) -> str:
-    return _load("system.md").replace("{today}", today.isoformat())
+def system_prompt(today: date, *, voice: bool = False) -> str:
+    """The base prompt, plus spoken-answer rules when the question came by voice."""
+    prompt = _load("system.md").replace("{today}", today.isoformat())
+    return prompt + _load("voice.md") if voice else prompt

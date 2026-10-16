@@ -2,7 +2,7 @@
 
 An AI-powered mobile assistant for employees: ask about leave, HR requests, onboarding and company policies by text or voice. The assistant answers from live HR data through **tool calling**, from company documents through **RAG**, streams its replies, and renders real app UI (cards, confirmations, sources) instead of plain text.
 
-> Status: **Phase 5 — Actions with confirmation** complete. See the [roadmap](#roadmap). The full README (architecture diagrams, screenshots, demo video) arrives in Phase 8.
+> Status: **Phase 6 — Voice** complete. See the [roadmap](#roadmap). The full README (architecture diagrams, screenshots, demo video) arrives in Phase 8.
 
 ## Architecture at a glance
 
@@ -76,8 +76,8 @@ uv run pytest
 | 3 | Tool calling + generative UI cards | Done |
 | 4 | RAG over HR documents with citations | Done |
 | 5 | Write actions with user confirmation | Done |
-| 6 | Voice | Next |
-| 7 | Home dashboard + push notifications | |
+| 6 | Voice | Done |
+| 7 | Home dashboard + push notifications | Next |
 | 8 | Security hardening, observability, deployment, demo | |
 
 ## Key decisions

@@ -6,6 +6,7 @@ import com.keystone.shared.data.remote.KeystoneApi
 import com.keystone.shared.data.remote.dto.ChatRequestDto
 import com.keystone.shared.data.remote.toAppError
 import com.keystone.shared.domain.model.ChatEvent
+import com.keystone.shared.domain.model.InputMode
 import com.keystone.shared.domain.repository.ChatRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -20,9 +21,11 @@ class ChatRepositoryImpl(private val api: KeystoneApi) : ChatRepository {
         conversationId: String?,
         clientMessageId: String,
         content: String,
+        inputMode: InputMode,
     ): Flow<ChatEvent> = flow {
         var finished = false
-        val events = api.streamChat(ChatRequestDto(conversationId, clientMessageId, content))
+        val request = ChatRequestDto(conversationId, clientMessageId, content, inputMode.wire)
+        val events = api.streamChat(request)
             .mapNotNull(ChatStreamMapper::map) // unknown event types are skipped
             .onEach { if (it is ChatEvent.Completed || it is ChatEvent.Failed) finished = true }
             // `catch` only sees upstream failures (network, HTTP status, bad JSON) and lets
