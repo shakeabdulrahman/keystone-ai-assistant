@@ -31,6 +31,8 @@ import kotlin.time.TimeSource
  * - The repository returns a cold Flow per message; collecting it opens the stream.
  * - Cancelling the collecting Job (Stop button, or leaving the screen) closes the HTTP
  *   connection, and the backend stops generating.
+ * - Tool events add a progress row ("Checking your leave balance") that becomes a native
+ *   card when the result arrives. Rows still running when the answer ends are marked failed.
  * - Text deltas are buffered and flushed to UI state at most every [FLUSH_INTERVAL], so a
  *   fast model doesn't trigger a recomposition for every token.
  *
@@ -97,7 +99,7 @@ class ChatViewModel @Inject constructor(
             state.copy(
                 isResponding = false,
                 messages = state.messages.map {
-                    if (it.status == Status.Streaming) it.copy(status = Status.Stopped) else it
+                    if (it.status == Status.Streaming) it.copy(status = Status.Stopped, tools = it.tools.settled()) else it
                 },
             )
         }
@@ -144,7 +146,8 @@ class ChatViewModel @Inject constructor(
                 pending.clear()
                 lastFlush = timeSource.markNow()
                 updateMessage(replyId) {
-                    it.copy(text = it.text + chunk, status = status, error = failure?.error)
+                    val tools = if (status == Status.Streaming) it.tools else it.tools.settled()
+                    it.copy(text = it.text + chunk, status = status, error = failure?.error, tools = tools)
                 }
             }
 
@@ -156,6 +159,27 @@ class ChatViewModel @Inject constructor(
                         is ChatEvent.Delta -> {
                             pending.append(event.text)
                             if (lastFlush.elapsedNow() >= FLUSH_INTERVAL) flush()
+                        }
+                        is ChatEvent.ToolStarted -> {
+                            flush()
+                            val running = ToolActivityUi(event.callId, event.label, ToolActivityUi.State.Running)
+                            updateMessage(replyId) { it.copy(tools = it.tools + running) }
+                        }
+                        is ChatEvent.ToolResult -> {
+                            flush()
+                            updateMessage(replyId) { message ->
+                                val state = if (event.ok) ToolActivityUi.State.Done else ToolActivityUi.State.Failed
+                                val known = message.tools.any { it.callId == event.callId }
+                                message.copy(
+                                    tools = if (known) {
+                                        message.tools.map {
+                                            if (it.callId == event.callId) it.copy(state = state, card = event.card) else it
+                                        }
+                                    } else {
+                                        message.tools + ToolActivityUi(event.callId, "", state, event.card)
+                                    },
+                                )
+                            }
                         }
                         is ChatEvent.Completed -> flush(Status.Complete)
                         is ChatEvent.Failed -> flush(Status.Failed, event)
@@ -190,6 +214,11 @@ class ChatViewModel @Inject constructor(
     }
 }
 
+/** No row can keep spinning once its answer has ended. */
+private fun List<ToolActivityUi>.settled() = map {
+    if (it.state == ToolActivityUi.State.Running) it.copy(state = ToolActivityUi.State.Failed) else it
+}
+
 private fun StoredMessage.toUi() = ChatMessageUi(
     id = id,
     role = if (role == StoredMessage.Role.User) Role.User else Role.Assistant,
@@ -201,4 +230,5 @@ private fun StoredMessage.toUi() = ChatMessageUi(
     },
     // A failed answer from an earlier session can still be retried.
     error = if (status == StoredMessage.Status.Failed) AppError.Assistant("ai_unavailable", retryable = true) else null,
+    tools = cards.mapIndexed { index, card -> ToolActivityUi("$id-$index", "", ToolActivityUi.State.Done, card) },
 )

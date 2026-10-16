@@ -1,0 +1,251 @@
+"""HR data source.
+
+In a real company this data lives in an HR system (Workday, BambooHR, SAP
+SuccessFactors) behind its own API, not in our database. `HrisClient` is that
+boundary. `DemoHrisClient` generates believable, synthetic data that is:
+  - deterministic per user (seeded by the user's ID), so it doesn't change between requests;
+  - relative to today, so "upcoming" meetings are always upcoming;
+  - different for every user, so data isolation is visible in demos and tests.
+Replacing it with a real HRIS means writing one class that implements `HrisClient`.
+"""
+
+import hashlib
+import random
+import uuid
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, time, timedelta
+from typing import Protocol
+
+
+@dataclass(frozen=True)
+class EmployeeProfile:
+    name: str
+    email: str | None
+    job_title: str
+    department: str
+    manager: str
+    location: str
+    start_date: date
+
+
+@dataclass(frozen=True)
+class LeaveBalance:
+    leave_type: str
+    entitled_days: float
+    used_days: float
+
+    @property
+    def remaining_days(self) -> float:
+        return self.entitled_days - self.used_days
+
+
+@dataclass(frozen=True)
+class LeaveRequest:
+    id: str
+    leave_type: str
+    start: date
+    end: date
+    days: float
+    status: str  # pending | approved | rejected
+    submitted_on: date
+
+
+@dataclass(frozen=True)
+class HrRequest:
+    id: str
+    category: str  # IT | Payroll | Facilities | HR
+    title: str
+    status: str  # submitted | in_progress | resolved
+    updated_on: date
+
+
+@dataclass(frozen=True)
+class Task:
+    id: str
+    title: str
+    category: str  # Onboarding | Training | Compliance
+    due: date
+    status: str  # pending | done
+
+
+@dataclass(frozen=True)
+class Appointment:
+    id: str
+    title: str
+    with_person: str
+    start: datetime
+    end: datetime
+    location: str
+
+
+@dataclass(frozen=True)
+class Notification:
+    id: str
+    title: str
+    body: str
+    created: datetime
+    read: bool
+
+
+class HrisClient(Protocol):
+    async def profile(self, user_id: uuid.UUID, email: str | None) -> EmployeeProfile: ...
+    async def leave_balances(self, user_id: uuid.UUID) -> list[LeaveBalance]: ...
+    async def leave_requests(self, user_id: uuid.UUID) -> list[LeaveRequest]: ...
+    async def hr_requests(self, user_id: uuid.UUID) -> list[HrRequest]: ...
+    async def tasks(self, user_id: uuid.UUID) -> list[Task]: ...
+    async def appointments(self, user_id: uuid.UUID) -> list[Appointment]: ...
+    async def notifications(self, user_id: uuid.UUID) -> list[Notification]: ...
+
+
+_FIRST = ["Aisha", "Rahul", "Maria", "Chen", "Fatima", "Arjun", "Sofia", "Daniel", "Priya", "Omar"]
+_LAST = ["Khan", "Sharma", "Garcia", "Wei", "Ali", "Nair", "Rossi", "Smith", "Iyer", "Hassan"]
+_TITLES = [
+    ("Senior Android Engineer", "Engineering"),
+    ("Product Designer", "Design"),
+    ("Data Analyst", "Analytics"),
+    ("HR Business Partner", "People"),
+    ("Backend Engineer", "Engineering"),
+]
+_LOCATIONS = ["Chennai", "Bengaluru", "London", "Dubai", "Remote"]
+
+
+class DemoHrisClient:
+    """Synthetic, per-user HR data. Clearly fake: never shown as real employee data."""
+
+    def __init__(self, today: date | None = None) -> None:
+        self._today = today  # fixed in tests; None means "the real today"
+
+    def _now(self) -> date:
+        return self._today or datetime.now(UTC).date()
+
+    @staticmethod
+    def _rng(user_id: uuid.UUID, topic: str) -> random.Random:
+        seed = hashlib.sha256(f"{user_id}:{topic}".encode()).digest()
+        return random.Random(int.from_bytes(seed[:8], "big"))  # noqa: S311 (not for security)
+
+    async def profile(self, user_id: uuid.UUID, email: str | None) -> EmployeeProfile:
+        rng = self._rng(user_id, "profile")
+        title, department = rng.choice(_TITLES)
+        return EmployeeProfile(
+            name=f"{rng.choice(_FIRST)} {rng.choice(_LAST)}",
+            email=email,
+            job_title=title,
+            department=department,
+            manager=f"{rng.choice(_FIRST)} {rng.choice(_LAST)}",
+            location=rng.choice(_LOCATIONS),
+            start_date=self._now() - timedelta(days=rng.randint(20, 900)),
+        )
+
+    async def leave_balances(self, user_id: uuid.UUID) -> list[LeaveBalance]:
+        rng = self._rng(user_id, "balance")
+        return [
+            LeaveBalance("Annual", 20, rng.randint(0, 14)),
+            LeaveBalance("Sick", 10, rng.randint(0, 4)),
+            LeaveBalance("Casual", 6, rng.randint(0, 5)),
+        ]
+
+    async def leave_requests(self, user_id: uuid.UUID) -> list[LeaveRequest]:
+        rng = self._rng(user_id, "leave")
+        today = self._now()
+        requests = []
+        for i, status in enumerate(["pending", "approved", "approved", "rejected"]):
+            # Pending requests are always for future dates; others can be past or future.
+            offset = rng.randint(5, 45) if status == "pending" else rng.randint(-60, 45)
+            start = today + timedelta(days=offset)
+            days = rng.choice([1, 2, 3, 5])
+            requests.append(
+                LeaveRequest(
+                    id=f"LR-{1040 + i}",
+                    leave_type=rng.choice(["Annual", "Casual", "Sick"]),
+                    start=start,
+                    end=start + timedelta(days=days - 1),
+                    days=float(days),
+                    status=status,
+                    # Never "submitted" in the future, even for leave that starts soon.
+                    submitted_on=min(start - timedelta(days=rng.randint(3, 20)), today),
+                )
+            )
+        return sorted(requests, key=lambda r: r.start, reverse=True)
+
+    async def hr_requests(self, user_id: uuid.UUID) -> list[HrRequest]:
+        rng = self._rng(user_id, "hr")
+        catalog = [
+            ("IT", "Laptop replacement"),
+            ("Payroll", "Correction to last month's salary slip"),
+            ("Facilities", "Access card not working"),
+            ("HR", "Employment verification letter"),
+            ("IT", "VPN access for client project"),
+        ]
+        picked = rng.sample(catalog, 4)
+        statuses = ["submitted", "in_progress", "in_progress", "resolved"]
+        today = self._now()
+        return [
+            HrRequest(
+                id=f"HR-{2210 + i}",
+                category=category,
+                title=title,
+                status=statuses[i],
+                updated_on=today - timedelta(days=rng.randint(0, 12)),
+            )
+            for i, (category, title) in enumerate(picked)
+        ]
+
+    async def tasks(self, user_id: uuid.UUID) -> list[Task]:
+        rng = self._rng(user_id, "tasks")
+        today = self._now()
+        catalog = [
+            ("Complete information security training", "Compliance"),
+            ("Upload ID proof and address documents", "Onboarding"),
+            ("Set up 1:1 with your manager", "Onboarding"),
+            ("Read the code of conduct", "Compliance"),
+            ("Finish the 'Working at Keystone' course", "Training"),
+            ("Enrol in the health insurance plan", "Onboarding"),
+        ]
+        return [
+            Task(
+                id=f"T-{300 + i}",
+                title=title,
+                category=category,
+                due=today + timedelta(days=rng.randint(-5, 21)),
+                status="done" if rng.random() < 0.35 else "pending",
+            )
+            for i, (title, category) in enumerate(rng.sample(catalog, 5))
+        ]
+
+    async def appointments(self, user_id: uuid.UUID) -> list[Appointment]:
+        rng = self._rng(user_id, "appointments")
+        today = self._now()
+        catalog = [
+            ("1:1 with your manager", "Your manager", "Teams"),
+            ("Benefits enrolment session", "HR team", "Room 4B"),
+            ("Quarterly performance check-in", "Your manager", "Teams"),
+            ("New joiner welcome lunch", "People team", "Cafeteria"),
+        ]
+        items = []
+        for i, (title, who, where) in enumerate(catalog):
+            day = today + timedelta(days=rng.randint(-10, 14))
+            start = datetime.combine(day, time(hour=rng.choice([10, 11, 14, 16])), UTC)
+            items.append(
+                Appointment(f"A-{50 + i}", title, who, start, start + timedelta(minutes=30), where)
+            )
+        return sorted(items, key=lambda a: a.start)
+
+    async def notifications(self, user_id: uuid.UUID) -> list[Notification]:
+        rng = self._rng(user_id, "notifications")
+        now = datetime.combine(self._now(), time(hour=9), UTC)
+        catalog = [
+            ("Leave approved", "Your annual leave request was approved by your manager."),
+            ("HR request updated", "Your laptop replacement request is now in progress."),
+            ("Training due soon", "Information security training is due in 3 days."),
+            ("Payslip available", "Your payslip for last month is ready to view."),
+        ]
+        return [
+            Notification(
+                id=f"N-{900 + i}",
+                title=title,
+                body=body,
+                created=now - timedelta(hours=rng.randint(1, 96)),
+                read=rng.random() < 0.4,
+            )
+            for i, (title, body) in enumerate(catalog)
+        ]

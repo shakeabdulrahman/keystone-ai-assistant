@@ -2,6 +2,7 @@ package com.keystone.shared.data.remote.dto
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 @Serializable
 internal data class ProfileDto(
@@ -33,6 +34,7 @@ internal data class MessageDto(
     @SerialName("content") val content: String,
     @SerialName("status") val status: String,
     @SerialName("created_at") val createdAt: String,
+    @SerialName("parts") val parts: List<JsonElement> = emptyList(),
 )
 
 @Serializable

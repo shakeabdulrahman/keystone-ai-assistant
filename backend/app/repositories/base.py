@@ -8,7 +8,7 @@ layer can accidentally lazy-load or mutate database state.
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 MessageRole = Literal["user", "assistant"]
 MessageStatus = Literal["complete", "interrupted", "failed"]
@@ -43,6 +43,7 @@ class MessageRecord:
     content: str
     status: MessageStatus
     created_at: datetime
+    parts: list[dict[str, Any]] | None = None
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,20 @@ class NewMessage:
     output_tokens: int | None = None
     latency_ms: int | None = None
     id: uuid.UUID | None = None  # lets the stream announce the ID before the row exists
+    parts: list[dict[str, Any]] | None = None
+
+
+@dataclass(frozen=True)
+class ToolAuditEntry:
+    user_id: uuid.UUID
+    conversation_id: uuid.UUID
+    message_id: uuid.UUID
+    call_id: str
+    tool_name: str
+    arguments: dict[str, Any]
+    status: str
+    error_code: str | None
+    latency_ms: int
 
 
 @dataclass(frozen=True)
@@ -108,3 +123,7 @@ class ConversationRepository(Protocol):
     ) -> Page[MessageRecord]:
         """A page of messages, oldest first; `next_cursor` points to older messages."""
         ...
+
+
+class ToolAuditRepository(Protocol):
+    async def record(self, entries: list[ToolAuditEntry]) -> None: ...

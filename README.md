@@ -2,7 +2,7 @@
 
 An AI-powered mobile assistant for employees: ask about leave, HR requests, onboarding and company policies by text or voice. The assistant answers from live HR data through **tool calling**, from company documents through **RAG**, streams its replies, and renders real app UI (cards, confirmations, sources) instead of plain text.
 
-> Status: **Phase 2 — Sign-in, conversation history and offline cache** complete. See the [roadmap](#roadmap). The full README (architecture diagrams, screenshots, demo video) arrives in Phase 8.
+> Status: **Phase 3 — Tool calling and generative UI cards** complete. See the [roadmap](#roadmap). The full README (architecture diagrams, screenshots, demo video) arrives in Phase 8.
 
 ## Architecture at a glance
 
@@ -45,12 +45,12 @@ docker compose up --build
 curl http://localhost:8000/healthz      # {"status":"ok"}
 curl http://localhost:8000/readyz       # database + pgvector checks
 curl -N -X POST http://localhost:8000/v1/chat -H 'content-type: application/json' \
-  -d '{"client_message_id":"'$(uuidgen)'","content":"How do I request annual leave?"}'
+  -d '{"client_message_id":"'$(uuidgen)'","content":"How many leave days do I have left?"}'
 
 # 2. Android
 #    Open the mobile/ folder in Android Studio and run the "androidApp" configuration
 #    on an emulator. Needs mobile/androidApp/google-services.json (see docs/firebase-setup.md).
-#    Sign in, then tap "Ask Keystone" to chat or "Your conversations" for history.
+#    Sign in, then tap "Ask Keystone" and try "How many leave days do I have left?"
 ```
 
 Backend without Docker (needs a local Postgres with pgvector):
@@ -70,8 +70,8 @@ uv run pytest
 | 0 | Foundations: repo, backend skeleton, KMP + Android skeleton, CI | Done |
 | 1 | Streaming chat (SSE, provider abstraction, Fake + Ollama) | Done |
 | 2 | Firebase sign-in, conversations and history, offline cache | Done |
-| 3 | Tool calling + generative UI cards | Next |
-| 4 | RAG over HR documents with citations | |
+| 3 | Tool calling + generative UI cards | Done |
+| 4 | RAG over HR documents with citations | Next |
 | 5 | Write actions with user confirmation | |
 | 6 | Voice | |
 | 7 | Home dashboard + push notifications | |

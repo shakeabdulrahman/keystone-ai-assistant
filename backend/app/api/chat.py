@@ -43,7 +43,7 @@ async def chat(
     settings: Annotated[Settings, Depends(get_settings_dep)],
 ) -> ClosingStreamingResponse:
     turn = await service.start_turn(
-        user_id=user.id,
+        user=user,
         conversation_id=body.conversation_id,
         client_message_id=str(body.client_message_id),
         content=body.content,

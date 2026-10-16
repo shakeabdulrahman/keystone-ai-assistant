@@ -9,6 +9,7 @@ import com.keystone.shared.core.AppError
 import com.keystone.shared.domain.model.ChatEvent
 import com.keystone.shared.domain.model.StoredMessage
 import com.keystone.shared.domain.model.TokenUsage
+import com.keystone.shared.domain.model.ToolCard
 import com.keystone.shared.domain.repository.ChatRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
@@ -189,6 +190,101 @@ class ChatViewModelTest {
         assertEquals(Status.Stopped, last.status)
         assertEquals("Partial answer", last.text) // buffered text isn't lost on Stop
         assertFalse(vm.uiState.value.isResponding)
+    }
+
+    private val balance = ToolCard.LeaveBalance(2026, listOf(ToolCard.LeaveBalance.Item("Annual", 20.0, 6.0, 14.0)))
+
+    @Test
+    fun `tool call shows progress then its card above the answer`() = runTest(mainDispatcherRule.dispatcher) {
+        val script = flow<ChatEvent> {
+            emit(ChatEvent.Started("c1", "m1", "u1"))
+            emit(ChatEvent.ToolStarted("call_1", "getLeaveBalance", "Checking your leave balance"))
+            delay(100)
+            emit(ChatEvent.ToolResult("call_1", "getLeaveBalance", ok = true, card = balance))
+            emit(ChatEvent.Delta("You have 14 days left."))
+            emit(ChatEvent.Completed("m1", truncated = false, usage = TokenUsage(1, 1)))
+        }
+        val vm = viewModel(FakeChatRepository(script))
+
+        vm.onSuggestion("How many leave days do I have left?")
+        advanceTimeBy(50)
+        runCurrent()
+        val running = vm.uiState.value.messages.last().tools.single()
+        assertEquals(ToolActivityUi.State.Running, running.state)
+        assertEquals("Checking your leave balance", running.label)
+
+        advanceUntilIdle()
+        val answer = vm.uiState.value.messages.last()
+        assertEquals(
+            listOf(ToolActivityUi("call_1", "Checking your leave balance", ToolActivityUi.State.Done, balance)),
+            answer.tools,
+        )
+        assertEquals("You have 14 days left.", answer.text)
+        assertEquals(Status.Complete, answer.status)
+    }
+
+    @Test
+    fun `failed tool is marked failed and the answer still arrives`() = runTest(mainDispatcherRule.dispatcher) {
+        val script = flow<ChatEvent> {
+            emit(ChatEvent.Started("c1", "m1", "u1"))
+            emit(ChatEvent.ToolStarted("call_1", "getTasks", "Checking your tasks"))
+            emit(ChatEvent.ToolResult("call_1", "getTasks", ok = false, card = null))
+            emit(ChatEvent.Delta("I couldn't load your tasks."))
+            emit(ChatEvent.Completed("m1", truncated = false, usage = TokenUsage(1, 1)))
+        }
+        val vm = viewModel(FakeChatRepository(script))
+
+        vm.onSuggestion("What are my tasks?")
+        advanceUntilIdle()
+
+        val answer = vm.uiState.value.messages.last()
+        assertEquals(ToolActivityUi.State.Failed, answer.tools.single().state)
+        assertEquals("I couldn't load your tasks.", answer.text)
+    }
+
+    @Test
+    fun `no progress row keeps spinning after stop or failure`() = runTest(mainDispatcherRule.dispatcher) {
+        val hanging = flow<ChatEvent> {
+            emit(ChatEvent.Started("c1", "m1", "u1"))
+            emit(ChatEvent.ToolStarted("call_1", "getTasks", "Checking your tasks"))
+            awaitCancellation()
+        }
+        val broken = flow<ChatEvent> {
+            emit(ChatEvent.Started("c1", "m2", "u2"))
+            emit(ChatEvent.ToolStarted("call_2", "getTasks", "Checking your tasks"))
+            emit(ChatEvent.Failed(AppError.Network))
+        }
+        val vm = viewModel(FakeChatRepository(hanging, broken))
+
+        vm.onSuggestion("Tasks?")
+        advanceTimeBy(100)
+        runCurrent()
+        vm.onStop()
+        advanceUntilIdle()
+        assertEquals(ToolActivityUi.State.Failed, vm.uiState.value.messages.last().tools.single().state)
+
+        vm.onSuggestion("Tasks again?")
+        advanceUntilIdle()
+        val failed = vm.uiState.value.messages.last()
+        assertEquals(Status.Failed, failed.status)
+        assertEquals(ToolActivityUi.State.Failed, failed.tools.single().state)
+    }
+
+    @Test
+    fun `history shows the cards saved with past answers`() = runTest(mainDispatcherRule.dispatcher) {
+        history.serverMessages = mapOf(
+            "c7" to listOf(
+                stored("1", StoredMessage.Role.User, "Leave?", StoredMessage.Status.Complete),
+                stored("22", StoredMessage.Role.Assistant, "14 days.", StoredMessage.Status.Complete)
+                    .copy(cards = listOf(balance)),
+            ),
+        )
+        val vm = viewModel(FakeChatRepository(), conversationId = "c7")
+        advanceUntilIdle()
+
+        val answer = vm.uiState.value.messages[1]
+        assertEquals(listOf(balance), answer.tools.map { it.card })
+        assertTrue(answer.tools.all { it.state == ToolActivityUi.State.Done })
     }
 
     @Test

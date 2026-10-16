@@ -5,6 +5,7 @@ import com.keystone.shared.data.remote.KeystoneApi
 import com.keystone.shared.data.remote.createHttpClient
 import com.keystone.shared.data.repository.ChatRepositoryImpl
 import com.keystone.shared.domain.model.ChatEvent
+import com.keystone.shared.domain.model.ToolCard
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
@@ -61,6 +62,33 @@ class ChatContractFixturesTest {
         assertEquals(
             listOf(ChatEvent.Started::class, ChatEvent.Delta::class, ChatEvent.Completed::class),
             events.map { it::class },
+        )
+    }
+
+    @Test
+    fun toolFixtureProducesTypedCard() = runTest {
+        val events = play("chat_stream_tool.sse")
+        assertEquals(
+            listOf(
+                ChatEvent.Started::class, ChatEvent.ToolStarted::class, ChatEvent.ToolResult::class,
+                ChatEvent.Delta::class, ChatEvent.Completed::class,
+            ),
+            events.map { it::class },
+        )
+        assertEquals(
+            ChatEvent.ToolStarted("call_1", "getLeaveBalance", "Checking your leave balance"),
+            events[1],
+        )
+        val result = assertIs<ChatEvent.ToolResult>(events[2])
+        assertEquals(
+            ToolCard.LeaveBalance(
+                year = 2026,
+                items = listOf(
+                    ToolCard.LeaveBalance.Item("Annual", 20.0, 6.0, 14.0),
+                    ToolCard.LeaveBalance.Item("Sick", 10.0, 1.0, 9.0),
+                ),
+            ),
+            result.card,
         )
     }
 }

@@ -1,6 +1,7 @@
 package com.keystone.android.ui.chat
 
 import com.keystone.shared.core.AppError
+import com.keystone.shared.domain.model.ToolCard
 
 data class ChatUiState(
     val messages: List<ChatMessageUi> = emptyList(),
@@ -18,6 +19,8 @@ data class ChatMessageUi(
     val text: String,
     val status: Status = Status.Complete,
     val error: AppError? = null,
+    /** HR lookups the assistant made for this answer, shown above its text in call order. */
+    val tools: List<ToolActivityUi> = emptyList(),
 ) {
     enum class Role { User, Assistant }
 
@@ -30,6 +33,16 @@ data class ChatMessageUi(
         Stopped,
         Failed,
     }
+}
+
+/** One tool call: a progress row while [state] is Running, then a card (or a short note). */
+data class ToolActivityUi(
+    val callId: String,
+    val label: String,
+    val state: State,
+    val card: ToolCard? = null,
+) {
+    enum class State { Running, Done, Failed }
 }
 
 const val MAX_MESSAGE_CHARS = 4000 // matches the backend limit

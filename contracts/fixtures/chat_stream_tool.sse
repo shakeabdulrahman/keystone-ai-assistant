@@ -1,0 +1,15 @@
+event: message.started
+data: {"seq":1,"conversation_id":"3f0c2a8e-5d1b-4c7a-9e2f-1a2b3c4d5e6f","message_id":"8d9e0f1a-2b3c-4d5e-8f6a-7b8c9d0e1f2a","user_message_id":"4c5d6e7f-8a9b-4c0d-9e1f-2a3b4c5d6e7f"}
+
+event: tool.started
+data: {"seq":2,"call_id":"call_1","tool":"getLeaveBalance","label":"Checking your leave balance"}
+
+event: tool.result
+data: {"seq":3,"call_id":"call_1","tool":"getLeaveBalance","status":"ok","ui":"leave_balance","data":{"year":2026,"unit":"days","items":[{"type":"Annual","entitled":20,"used":6,"remaining":14},{"type":"Sick","entitled":10,"used":1,"remaining":9}]}}
+
+event: text.delta
+data: {"seq":4,"text":"You have 14 days of annual leave left."}
+
+event: message.completed
+data: {"seq":5,"message_id":"8d9e0f1a-2b3c-4d5e-8f6a-7b8c9d0e1f2a","finish_reason":"stop","usage":{"input_tokens":310,"output_tokens":24}}
+

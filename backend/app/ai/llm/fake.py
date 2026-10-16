@@ -1,24 +1,50 @@
-"""Deterministic provider for tests and offline UI work. Costs nothing, needs no network."""
+"""Deterministic provider for tests, demos and offline UI work. Costs nothing, needs no network."""
 
 import asyncio
+import json
+import uuid
 from collections.abc import AsyncGenerator, Sequence
 
 from app.ai.llm.base import LLMError
-from app.ai.llm.types import Done, LLMEvent, LLMRequest, TextDelta, Usage
+from app.ai.llm.types import (
+    ChatMessage,
+    Done,
+    LLMEvent,
+    LLMRequest,
+    TextDelta,
+    ToolCall,
+    ToolCallRequested,
+    Usage,
+)
 
 DEFAULT_REPLY = (
-    "Hi! I'm Keystone, your HR assistant. I can't see your HR records yet, "
-    "but soon I'll be able to check your leave balance, HR requests and "
-    "onboarding tasks, and answer questions from company policies."
+    "Hi! I'm Keystone, your HR assistant. Ask me about your leave balance, leave requests, "
+    "HR requests, onboarding tasks, meetings or notifications."
 )
+
+# A scripted turn is either text to stream, or tool calls to request.
+FakeTurn = str | list[ToolCall]
+
+# Demo mode (no script): which tool a question about each keyword triggers.
+_DEMO_ROUTES: list[tuple[tuple[str, ...], str]] = [
+    (("balance", "how many", "days left", "remaining"), "getLeaveBalance"),
+    (("leave request", "time off request", "my leave"), "getLeaveRequests"),
+    (("hr request", "ticket", "laptop", "payroll"), "getHrRequests"),
+    (("task", "onboarding", "training", "to do", "todo"), "getTasks"),
+    (("meeting", "appointment", "1:1", "calendar"), "getAppointments"),
+    (("notification", "update", "news"), "getNotifications"),
+    (("profile", "manager", "who am i", "my details"), "getUserProfile"),
+]
 
 
 class FakeLLMProvider:
-    """Replays a scripted reply word by word.
+    """Replays scripted turns word by word.
 
-    - `reply`: text to stream (split on spaces so it looks like real tokens).
+    - `turns`: one entry per call to `stream` (the last one repeats). A string streams as
+      text; a list of ToolCall asks for tools. Without `turns`, `reply` is streamed, or in
+      `demo` mode the fake picks a tool by keyword so the app can be explored without a model.
     - `delay_s`: pause between chunks, to exercise streaming UIs and cancellation.
-    - `fail_with`: raise this error after `fail_after` chunks, to test error paths.
+    - `fail_with` / `fail_after`: raise an error part-way, to test error paths.
     """
 
     name = "fake"
@@ -28,19 +54,32 @@ class FakeLLMProvider:
         self,
         reply: str = DEFAULT_REPLY,
         *,
+        turns: Sequence[FakeTurn] | None = None,
+        demo: bool = False,
         delay_s: float = 0.0,
         fail_with: LLMError | None = None,
         fail_after: int = 0,
     ) -> None:
         self.reply = reply
+        self.turns = list(turns) if turns else None
+        self.demo = demo
         self.delay_s = delay_s
         self.fail_with = fail_with
         self.fail_after = fail_after
-        self.requests: list[LLMRequest] = []  # lets tests assert on the prompt sent
+        self.requests: list[LLMRequest] = []  # lets tests assert on what was sent
 
     async def stream(self, request: LLMRequest) -> AsyncGenerator[LLMEvent, None]:
         self.requests.append(request)
-        chunks = _chunk(self.reply)
+        turn = self._next_turn(request)
+        input_tokens = sum(len(m.content.split()) for m in request.messages)
+
+        if isinstance(turn, list):
+            for call in turn:
+                yield ToolCallRequested(call)
+            yield Done("tool_calls", Usage(input_tokens=input_tokens, output_tokens=len(turn)))
+            return
+
+        chunks = _chunk(turn)
         for i, chunk in enumerate(chunks):
             if self.fail_with is not None and i == self.fail_after:
                 raise self.fail_with
@@ -49,8 +88,33 @@ class FakeLLMProvider:
             yield TextDelta(chunk)
         if self.fail_with is not None and self.fail_after >= len(chunks):
             raise self.fail_with
-        input_tokens = sum(len(m.content.split()) for m in request.messages)
         yield Done("stop", Usage(input_tokens=input_tokens, output_tokens=len(chunks)))
+
+    def _next_turn(self, request: LLMRequest) -> FakeTurn:
+        if self.turns:
+            index = min(len(self.requests) - 1, len(self.turns) - 1)
+            return self.turns[index]
+        if self.demo and request.tools:
+            return _demo_turn(request.messages, {t.name for t in request.tools})
+        return self.reply
+
+
+def _demo_turn(messages: list[ChatMessage], available: set[str]) -> FakeTurn:
+    last = messages[-1] if messages else None
+    if last is not None and last.role == "tool":
+        try:
+            data = json.loads(last.content)
+        except ValueError:
+            data = {}
+        count = len(data.get("items", [])) if isinstance(data, dict) else 0
+        detail = f" I found {count} item{'s' if count != 1 else ''}." if count else ""
+        return f"Here's what I found in your HR records.{detail}"
+    if last is not None and last.role == "user":
+        text = last.content.lower()
+        for keywords, tool in _DEMO_ROUTES:
+            if tool in available and any(k in text for k in keywords):
+                return [ToolCall(f"call_{uuid.uuid4().hex[:8]}", tool, {})]
+    return DEFAULT_REPLY
 
 
 def _chunk(text: str) -> Sequence[str]:

@@ -6,7 +6,7 @@ from pathlib import Path
 
 _DIR = Path(__file__).parent
 
-SYSTEM_PROMPT_VERSION = "system-v1"
+SYSTEM_PROMPT_VERSION = "system-v2"
 
 
 @cache

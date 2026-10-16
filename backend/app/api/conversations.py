@@ -1,7 +1,7 @@
 """Conversation history endpoints. Every query is scoped to the signed-in user."""
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -44,11 +44,18 @@ class MessageOut(BaseModel):
     content: str
     status: Literal["complete", "interrupted", "failed"]
     created_at: datetime
+    # Tool results shown as cards (same shape as the tool.result stream event).
+    parts: list[dict[str, Any]] = []
 
     @classmethod
     def of(cls, m: MessageRecord) -> "MessageOut":
         return cls(
-            id=m.id, role=m.role, content=m.content, status=m.status, created_at=m.created_at
+            id=m.id,
+            role=m.role,
+            content=m.content,
+            status=m.status,
+            created_at=m.created_at,
+            parts=m.parts or [],
         )
 
 

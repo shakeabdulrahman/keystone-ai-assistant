@@ -12,13 +12,14 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models import Conversation, Message, User
+from app.db.models import Conversation, Message, ToolExecution, User
 from app.repositories.base import (
     ConversationRecord,
     DuplicateMessageError,
     MessageRecord,
     NewMessage,
     Page,
+    ToolAuditEntry,
     UserRecord,
 )
 from app.repositories.cursor import decode_cursor, encode_cursor
@@ -50,6 +51,7 @@ def _message(row: Message) -> MessageRecord:
         row.content,
         row.status,  # type: ignore[arg-type]
         row.created_at,
+        row.parts,
     )
 
 
@@ -186,6 +188,7 @@ class SqlConversationRepository:
             input_tokens=message.input_tokens,
             output_tokens=message.output_tokens,
             latency_ms=message.latency_ms,
+            parts=message.parts,
             created_at=now,
         )
         async with self._sessions() as session:
@@ -233,3 +236,29 @@ class SqlConversationRepository:
         page = [_message(r) for r in rows[:limit]]
         next_cursor = encode_cursor(page[-1].created_at, page[-1].id) if len(rows) > limit else None
         return Page(list(reversed(page)), next_cursor)
+
+
+class SqlToolAuditRepository:
+    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+        self._sessions = sessions
+
+    async def record(self, entries: list[ToolAuditEntry]) -> None:
+        if not entries:
+            return
+        async with self._sessions() as session:
+            session.add_all(
+                ToolExecution(
+                    id=uuid.uuid4(),
+                    user_id=e.user_id,
+                    conversation_id=e.conversation_id,
+                    message_id=e.message_id,
+                    call_id=e.call_id,
+                    tool_name=e.tool_name,
+                    arguments=e.arguments,
+                    status=e.status,
+                    error_code=e.error_code,
+                    latency_ms=e.latency_ms,
+                )
+                for e in entries
+            )
+            await session.commit()

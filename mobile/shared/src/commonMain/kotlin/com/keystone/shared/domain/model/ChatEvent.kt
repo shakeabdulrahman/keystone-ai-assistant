@@ -4,7 +4,7 @@ import com.keystone.shared.core.AppError
 
 /**
  * What happens while the assistant answers one message, in order:
- * [Started] → [Delta]* → ([Completed] | [Failed]).
+ * [Started] → ([Delta] | [ToolStarted] / [ToolResult])* → ([Completed] | [Failed]).
  * Every stream ends with exactly one terminal event, even when the network fails.
  */
 sealed interface ChatEvent {
@@ -15,6 +15,12 @@ sealed interface ChatEvent {
     ) : ChatEvent
 
     data class Delta(val text: String) : ChatEvent
+
+    /** The assistant started looking something up; [label] is user-facing ("Checking your leave balance"). */
+    data class ToolStarted(val callId: String, val tool: String, val label: String) : ChatEvent
+
+    /** A lookup finished. [card] is null when it failed or the card type is unknown to this app version. */
+    data class ToolResult(val callId: String, val tool: String, val ok: Boolean, val card: ToolCard?) : ChatEvent
 
     data class Completed(
         val messageId: String,

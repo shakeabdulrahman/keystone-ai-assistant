@@ -6,7 +6,17 @@ import pytest
 from app.ai.llm.base import LLMConfigurationError, LLMUnavailableError
 from app.ai.llm.fake import FakeLLMProvider
 from app.ai.llm.ollama import OllamaProvider
-from app.ai.llm.types import ChatMessage, Done, LLMEvent, LLMRequest, TextDelta, Usage
+from app.ai.llm.types import (
+    ChatMessage,
+    Done,
+    LLMEvent,
+    LLMRequest,
+    TextDelta,
+    ToolCall,
+    ToolCallRequested,
+    ToolSpec,
+    Usage,
+)
 
 REQUEST = LLMRequest(system="sys", messages=[ChatMessage("user", "hello there")])
 
@@ -97,3 +107,79 @@ async def test_ollama_stream_without_done_is_unavailable() -> None:
     )
     with pytest.raises(LLMUnavailableError):
         await collect(ollama_with(transport))
+
+
+async def test_ollama_sends_tools_and_parses_tool_calls() -> None:
+    sent: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            content=ndjson(
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {"function": {"name": "getTasks", "arguments": {"status": "pending"}}}
+                        ],
+                    },
+                    "done": False,
+                },
+                {"message": {"content": ""}, "done": True, "done_reason": "stop", "eval_count": 9},
+            ),
+        )
+
+    provider = ollama_with(httpx.MockTransport(handler))
+    request = LLMRequest(
+        system="sys",
+        messages=[
+            ChatMessage("user", "tasks?"),
+            ChatMessage("assistant", "", tool_calls=(ToolCall("c0", "getProfile", {}),)),
+            ChatMessage("tool", '{"name":"A"}', tool_call_id="c0", tool_name="getProfile"),
+        ],
+        tools=[ToolSpec("getTasks", "Tasks", {"type": "object", "properties": {}})],
+    )
+    events = [e async for e in provider.stream(request)]
+
+    assert sent["tools"] == [
+        {
+            "type": "function",
+            "function": {
+                "name": "getTasks",
+                "description": "Tasks",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+    messages = sent["messages"]
+    assert isinstance(messages, list)
+    assert messages[2]["tool_calls"] == [{"function": {"name": "getProfile", "arguments": {}}}]
+    assert messages[3] == {"role": "tool", "content": '{"name":"A"}', "tool_name": "getProfile"}
+    call_event = events[0]
+    assert isinstance(call_event, ToolCallRequested)
+    assert (call_event.call.name, call_event.call.arguments) == ("getTasks", {"status": "pending"})
+    assert call_event.call.id  # generated when Ollama doesn't provide one
+    assert events[-1] == Done("tool_calls", Usage(0, 9))
+
+
+async def test_ollama_tolerates_string_arguments() -> None:
+    transport = httpx.MockTransport(
+        lambda _: httpx.Response(
+            200,
+            content=ndjson(
+                {
+                    "message": {
+                        "tool_calls": [
+                            {"function": {"name": "getTasks", "arguments": '{"status":"done"}'}}
+                        ]
+                    },
+                    "done": True,
+                }
+            ),
+        )
+    )
+    events = await collect(ollama_with(transport))
+    assert isinstance(events[0], ToolCallRequested)
+    assert events[0].call.arguments == {"status": "done"}

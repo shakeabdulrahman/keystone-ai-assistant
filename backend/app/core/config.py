@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     sse_heartbeat_s: float = 15.0
     title_generation_enabled: bool = True
 
+    # --- Tools / agent loop -------------------------------------------------------------
+    agent_max_steps: int = 4  # model calls per user message (each may request tools)
+    tool_timeout_s: float = 5.0
+
     @model_validator(mode="after")
     def _check_auth(self) -> "Settings":
         if self.is_production and self.auth_mode == "dev":

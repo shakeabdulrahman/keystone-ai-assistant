@@ -23,4 +23,6 @@ data class MessageEntity(
     val content: String,
     val status: String,
     val createdAtMillis: Long,
+    /** The answer's tool results as the server's JSON `parts` array, parsed into cards on read. */
+    val partsJson: String = "[]",
 )

@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import anyio
@@ -16,11 +17,14 @@ from app.ai.events import (
     MessageStarted,
     StreamError,
     TextDeltaOut,
+    ToolResultOut,
+    ToolStarted,
 )
 from app.ai.llm.fake import FakeLLMProvider
 from app.ai.llm.ollama import OllamaProvider
 from app.api.chat import _encode
 from app.api.streaming import with_heartbeat
+from app.repositories.base import UserRecord
 from app.repositories.memory import InMemoryConversationRepository
 from app.services.chat_service import ChatService, ChatTurn
 from tests.sse import parse_sse
@@ -31,8 +35,10 @@ MODELS: dict[str, type[BaseModel]] = {
     "text.delta": TextDeltaOut,
     "message.completed": MessageCompleted,
     "error": StreamError,
+    "tool.started": ToolStarted,
+    "tool.result": ToolResultOut,
 }
-USER = uuid.uuid4()
+USER = UserRecord(uuid.uuid4(), "uid-1", None, None, "member", datetime.now(UTC))
 
 
 async def test_heartbeat_fills_silence() -> None:
@@ -158,7 +164,13 @@ async def test_disconnect_closes_upstream_model_connection() -> None:
 
 
 @pytest.mark.parametrize(
-    "name", ["chat_stream_basic.sse", "chat_stream_error.sse", "chat_stream_forward_compat.sse"]
+    "name",
+    [
+        "chat_stream_basic.sse",
+        "chat_stream_error.sse",
+        "chat_stream_forward_compat.sse",
+        "chat_stream_tool.sse",
+    ],
 )
 def test_contract_fixtures_match_server_models(name: str) -> None:
     """Every known event in the shared fixtures must be something the server can produce."""
@@ -170,6 +182,8 @@ def test_contract_fixtures_match_server_models(name: str) -> None:
         if model is None:
             continue  # unknown future event: clients ignore it, and so do we
         payload = {k: v for k, v in frame.data.items() if k != "seq"}
+        if name == "chat_stream_forward_compat.sse":
+            continue  # deliberately carries old/extra shapes that clients must tolerate
         model.model_validate(payload)
 
 

@@ -14,6 +14,7 @@ from app.repositories.base import (
     MessageRecord,
     NewMessage,
     Page,
+    ToolAuditEntry,
     UserRecord,
 )
 from app.repositories.cursor import decode_cursor, encode_cursor
@@ -120,6 +121,7 @@ class InMemoryConversationRepository:
             message.content,
             message.status,
             now,
+            message.parts,
         )
         stored.append((record, message.client_message_id))
         conversation = self.conversations[conversation_id]
@@ -141,3 +143,11 @@ class InMemoryConversationRepository:
         page = items[-limit:]
         next_cursor = encode_cursor(page[0].created_at, page[0].id) if len(items) > limit else None
         return Page(page, next_cursor)
+
+
+class InMemoryToolAuditRepository:
+    def __init__(self) -> None:
+        self.entries: list[ToolAuditEntry] = []
+
+    async def record(self, entries: list[ToolAuditEntry]) -> None:
+        self.entries.extend(entries)

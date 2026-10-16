@@ -18,7 +18,7 @@ Local development (`AUTH_MODE=dev`, refused in production): tokens look like `de
 | POST | `/v1/chat` | Send a message; streams the reply (below) |
 | GET | `/v1/conversations?limit=20&cursor=` | Newest first. `{items: [{id, title, created_at, updated_at, last_message_at}], next_cursor}` |
 | GET | `/v1/conversations/{id}` | One conversation (`404` if missing or not yours) |
-| GET | `/v1/conversations/{id}/messages?limit=50&cursor=` | `{items: [{id, role, content, status, created_at}], next_cursor}`. Items are oldest first; `next_cursor` loads **older** messages |
+| GET | `/v1/conversations/{id}/messages?limit=50&cursor=` | `{items: [{id, role, content, status, created_at, parts}], next_cursor}`. Items are oldest first; `next_cursor` loads **older** messages. `parts` lists the answer's tool results (`type: "tool_result"`, `call_id`, `tool`, `status`, `ui`, `data`) so history shows the same cards |
 | PATCH | `/v1/conversations/{id}` | `{title}` (1–120 chars) |
 | DELETE | `/v1/conversations/{id}` | Removes it from the user's list (`204`) |
 
@@ -53,11 +53,29 @@ Lines starting with `:` are keep-alive comments and carry no data.
 | `message.started` | `conversation_id`, `message_id`, `user_message_id` | Remember the conversation ID; show an empty streaming bubble. `message_id` is the ID the answer is stored under |
 | `text.delta` | `text` | Append text to the bubble |
 | `message.completed` | `message_id`, `finish_reason` (`stop`/`length`), `usage` {`input_tokens`, `output_tokens`} | Mark the message complete |
+| `tool.started` | `call_id`, `tool`, `label` (e.g. "Checking your leave balance") | Show a progress row with the label |
+| `tool.result` | `call_id`, `tool`, `status` (`ok`/`error`), `ui` (card type or null), `data` (object) | Replace the progress row with the card for `ui`; on error, a short "couldn't load" note |
 | `error` | `code`, `message` (safe to show), `retryable` | Show the message; offer Retry if `retryable` |
 
-Order: `message.started`, then zero or more `text.delta`, then exactly one of `message.completed` or `error`.
+Order: `message.started`, then any mix of `text.delta` and `tool.started`/`tool.result` pairs (same `call_id`), then exactly one of `message.completed` or `error`. A model may call several tools, over several steps, before or between text.
 
-**Forward compatibility:** clients must ignore event types and fields they don't recognise. Later phases add `tool.started`, `tool.result`, `confirmation.required` and `citations`.
+**Forward compatibility:** clients must ignore event types, fields and `ui` card types they don't recognise. Later phases add `confirmation.required` and `citations`.
+
+### Tool cards (`ui` → `data`)
+
+All dates are ISO 8601 (`2026-10-15`, or full timestamps for meetings and notifications).
+
+| `ui` | `data` |
+| --- | --- |
+| `profile` | `name`, `email`, `job_title`, `department`, `manager`, `location`, `start_date` |
+| `leave_balance` | `year`, `unit`, `items[]`: `type`, `entitled`, `used`, `remaining` |
+| `leave_requests` | `filter`, `items[]`: `id`, `type`, `start`, `end`, `days`, `status` (`pending`/`approved`/`rejected`), `submitted_on` |
+| `hr_requests` | `filter`, `items[]`: `id`, `category`, `title`, `status` (`submitted`/`in_progress`/`resolved`), `updated_on` |
+| `tasks` | `filter`, `items[]`: `id`, `title`, `category`, `due`, `status` (`pending`/`done`), `overdue` |
+| `appointments` | `filter`, `items[]`: `id`, `title`, `with`, `start`, `end`, `location` |
+| `notifications` | `items[]`: `id`, `title`, `body`, `created_at`, `read` |
+
+Results larger than the size limit carry `"truncated": true`.
 
 Error codes: `ai_unavailable`, `ai_timeout`, `ai_rate_limited` (retryable), `ai_misconfigured` (not retryable), `internal_error` (retryable).
 
@@ -68,3 +86,4 @@ Error codes: `ai_unavailable`, `ai_timeout`, `ai_rate_limited` (retryable), `ai_
 | `fixtures/chat_stream_basic.sse` | A successful reply with a keep-alive comment |
 | `fixtures/chat_stream_error.sse` | A reply that fails part-way |
 | `fixtures/chat_stream_forward_compat.sse` | An unknown event type and extra fields that clients must ignore |
+| `fixtures/chat_stream_tool.sse` | A tool call (leave balance) followed by the answer |

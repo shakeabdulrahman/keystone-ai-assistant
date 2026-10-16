@@ -13,7 +13,7 @@ import kotlinx.coroutines.IO
  * It's a cache, not the source of truth: the server is. Version bumps that aren't worth a
  * migration can simply drop and refetch (see [buildKeystoneDatabase]).
  */
-@Database(entities = [ConversationEntity::class, MessageEntity::class], version = 1)
+@Database(entities = [ConversationEntity::class, MessageEntity::class], version = 2)
 @ConstructedBy(KeystoneDatabaseConstructor::class)
 abstract class KeystoneDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao

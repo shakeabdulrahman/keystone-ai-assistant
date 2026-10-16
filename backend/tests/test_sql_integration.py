@@ -13,11 +13,18 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
 from app.ai.llm.fake import FakeLLMProvider
+from app.ai.llm.types import ToolCall
+from app.ai.tools.hr_tools import build_hr_registry
 from app.core.config import Settings
 from app.db.session import Database
+from app.integrations.hris import DemoHrisClient
 from app.repositories.base import DuplicateMessageError, NewMessage
-from app.repositories.sql import SqlConversationRepository, SqlUserRepository
-from app.services.chat_service import ChatService
+from app.repositories.sql import (
+    SqlConversationRepository,
+    SqlToolAuditRepository,
+    SqlUserRepository,
+)
+from app.services.chat_service import AgentTools, ChatService
 from tests.conftest import as_user, build_test_app
 from tests.sse import parse_sse
 
@@ -33,7 +40,7 @@ ALICE, BOB = as_user("alice"), as_user("bob")
 async def db() -> AsyncIterator[Database]:
     database = Database(Settings())
     async with database.engine.begin() as conn:
-        await conn.execute(text("TRUNCATE users, conversations, messages CASCADE"))
+        await conn.execute(text("TRUNCATE users, conversations, messages, tool_executions CASCADE"))
     yield database
     await database.dispose()
 
@@ -122,3 +129,32 @@ async def test_delete_me_cascades_everything(client: AsyncClient, db: Database) 
             for table in ("users", "conversations", "messages")
         ]
     assert counts == [0, 0, 0]
+
+
+async def test_tool_answer_parts_and_audit_are_persisted(db: Database) -> None:
+    provider = FakeLLMProvider(turns=[[ToolCall("c1", "getLeaveBalance", {})], "Plenty left."])
+    harness = build_test_app(provider)
+    conversations = SqlConversationRepository(db.session_factory)
+    harness.app.state.users = SqlUserRepository(db.session_factory)
+    harness.app.state.conversations = conversations
+    harness.app.state.chat_service = ChatService(
+        provider,
+        conversations,
+        history_messages=20,
+        max_output_tokens=64,
+        tools=AgentTools(
+            build_hr_registry(), DemoHrisClient(), SqlToolAuditRepository(db.session_factory)
+        ),
+    )
+    async with AsyncClient(transport=ASGITransport(app=harness.app), base_url="http://test") as c:
+        conversation = await chat(c, "Leave balance?")
+        messages = (
+            await c.get(f"/v1/conversations/{conversation}/messages", headers=ALICE)
+        ).json()["items"]
+
+    assert messages[-1]["parts"][0]["ui"] == "leave_balance"
+    async with db.engine.connect() as conn:
+        row = (
+            await conn.execute(text("SELECT tool_name, status, latency_ms FROM tool_executions"))
+        ).one()
+    assert (row.tool_name, row.status) == ("getLeaveBalance", "ok")

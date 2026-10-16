@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.ai.llm.factory import create_llm_provider
+from app.ai.tools.hr_tools import build_hr_registry
 from app.api import auth, chat, conversations, health
 from app.core.auth import DevTokenVerifier, FirebaseTokenVerifier, TokenVerifier
 from app.core.config import Settings, get_settings
@@ -14,8 +15,13 @@ from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import RequestContextMiddleware
 from app.db.session import Database
-from app.repositories.sql import SqlConversationRepository, SqlUserRepository
-from app.services.chat_service import ChatService
+from app.integrations.hris import DemoHrisClient
+from app.repositories.sql import (
+    SqlConversationRepository,
+    SqlToolAuditRepository,
+    SqlUserRepository,
+)
+from app.services.chat_service import AgentTools, ChatService
 from app.services.titles import TitleGenerator
 
 logger = logging.getLogger("keystone")
@@ -69,6 +75,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         history_messages=settings.chat_history_messages,
         max_output_tokens=settings.chat_max_output_tokens,
         titles=app.state.titles,
+        tools=AgentTools(
+            registry=build_hr_registry(settings.tool_timeout_s),
+            hris=DemoHrisClient(),  # stands in for a real HR system (Workday, BambooHR, ...)
+            audit=SqlToolAuditRepository(app.state.db.session_factory),
+            max_steps=settings.agent_max_steps,
+        ),
     )
 
     app.add_middleware(RequestContextMiddleware)

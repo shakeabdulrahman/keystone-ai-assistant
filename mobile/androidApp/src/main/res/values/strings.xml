@@ -24,9 +24,9 @@
     <string name="chat_input_hint">Ask about leave, policies, onboarding…</string>
     <string name="chat_empty_title">How can I help?</string>
     <string name="chat_empty_body">I\'m your HR assistant. Ask me anything about leave, HR requests or company policies.</string>
-    <string name="chat_suggestion_leave">How do I request annual leave?</string>
-    <string name="chat_suggestion_onboarding">What should I do in my first week?</string>
-    <string name="chat_suggestion_request">How do I raise an HR request?</string>
+    <string name="chat_suggestion_leave">How many leave days do I have left?</string>
+    <string name="chat_suggestion_onboarding">What onboarding tasks are still pending?</string>
+    <string name="chat_suggestion_request">Show my open HR requests</string>
     <string name="chat_error_network">Connection lost. Check your network and try again.</string>
     <string name="chat_error_timeout">The assistant took too long to respond.</string>
     <string name="chat_error_busy">The assistant is busy right now. Please try again shortly.</string>
@@ -74,4 +74,37 @@
     <string name="history_delete_title">Delete conversation?</string>
     <string name="history_delete_body">“%1$s” will be removed from your history.</string>
     <string name="history_action_failed">That didn\'t work. Check your connection and try again.</string>
+    <!-- Tool activity and cards (Phase 3) -->
+    <string name="tool_working">Looking that up…</string>
+    <string name="tool_failed">Couldn’t load some of your HR data.</string>
+    <string name="tool_card_empty">Nothing to show.</string>
+    <string name="tool_card_more">+%1$d more</string>
+    <string name="tool_profile_manager">Manager</string>
+    <string name="tool_profile_location">Location</string>
+    <string name="tool_profile_started">Started</string>
+    <string name="tool_profile_email">Email</string>
+    <string name="tool_leave_balance_title">Leave balance %1$d</string>
+    <string name="tool_leave_balance_left">%1$s of %2$s days left</string>
+    <string name="tool_leave_requests_title">Leave requests</string>
+    <string name="tool_leave_request_row">%1$s leave · %2$s</string>
+    <plurals name="tool_days">
+        <item quantity="one">%s day</item>
+        <item quantity="other">%s days</item>
+    </plurals>
+    <string name="tool_hr_requests_title">HR requests</string>
+    <string name="tool_hr_request_sub">%1$s · updated %2$s</string>
+    <string name="tool_tasks_title">Your tasks</string>
+    <string name="tool_task_sub">%1$s · due %2$s</string>
+    <string name="tool_appointments_title">Meetings</string>
+    <string name="tool_appointment_sub">%1$s · %2$s · %3$s</string>
+    <string name="tool_notifications_title">Notifications</string>
+    <string name="tool_status_approved">Approved</string>
+    <string name="tool_status_rejected">Rejected</string>
+    <string name="tool_status_pending">Pending</string>
+    <string name="tool_status_submitted">Submitted</string>
+    <string name="tool_status_in_progress">In progress</string>
+    <string name="tool_status_resolved">Resolved</string>
+    <string name="tool_status_done">Done</string>
+    <string name="tool_status_overdue">Overdue</string>
+    <string name="tool_status_to_do">To do</string>
 </resources>

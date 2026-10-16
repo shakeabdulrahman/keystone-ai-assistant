@@ -9,7 +9,8 @@ from app.core.config import Settings
 def create_llm_provider(settings: Settings) -> LLMProvider:
     match settings.llm_provider:
         case "fake":
-            return FakeLLMProvider(delay_s=settings.fake_llm_delay_s)
+            # demo=True: picks tools by keyword so the app can be explored without a model.
+            return FakeLLMProvider(delay_s=settings.fake_llm_delay_s, demo=True)
         case "ollama":
             return OllamaProvider(
                 base_url=settings.ollama_base_url,

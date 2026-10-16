@@ -56,9 +56,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.keystone.android.R
 import com.keystone.android.ui.chat.ChatMessageUi.Role
 import com.keystone.android.ui.chat.ChatMessageUi.Status
+import com.keystone.android.ui.chat.cards.ToolActivity
 import com.keystone.designsystem.theme.KeystoneTheme
 import com.keystone.shared.core.AppError
 import com.keystone.shared.core.isRetryable
+import com.keystone.shared.domain.model.ToolCard
 
 @Composable
 fun ChatRoute(
@@ -133,7 +135,7 @@ private fun MessageList(
     val listState = rememberLazyListState()
     // Follow the conversation: scroll when a message is added or the last one grows.
     val last = messages.lastOrNull()
-    LaunchedEffect(messages.size, last?.text?.length, last?.status) {
+    LaunchedEffect(messages.size, last?.text?.length, last?.status, last?.tools) {
         listState.animateScrollToItem(messages.lastIndex)
     }
     LazyColumn(
@@ -156,30 +158,41 @@ private fun MessageBubble(message: ChatMessageUi, onRetry: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
     ) {
-        Column(horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
-            Surface(
-                color = if (isUser) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainer
-                },
-                shape = RoundedCornerShape(
-                    topStart = 20.dp,
-                    topEnd = 20.dp,
-                    bottomStart = if (isUser) 20.dp else 6.dp,
-                    bottomEnd = if (isUser) 6.dp else 20.dp,
-                ),
-                modifier = Modifier
-                    .widthIn(max = 320.dp)
-                    .semantics(mergeDescendants = true) {
-                        contentDescription = "$speaker: ${message.text}"
+        Column(
+            horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            // Tool progress rows and cards come first: the text answer is written from them.
+            message.tools.forEach { ToolActivity(it) }
+            val toolRunning = message.tools.any { it.state == ToolActivityUi.State.Running }
+            val showBubble = message.text.isNotEmpty() ||
+                (message.status == Status.Streaming && !toolRunning) ||
+                (message.status == Status.Failed && message.tools.isEmpty())
+            if (showBubble) {
+                Surface(
+                    color = if (isUser) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainer
                     },
-            ) {
-                Box(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    when {
-                        message.text.isEmpty() && message.status == Status.Streaming -> TypingIndicator()
-                        message.status == Status.Streaming -> Text(message.text + " ▍")
-                        message.text.isNotEmpty() -> Text(message.text)
+                    shape = RoundedCornerShape(
+                        topStart = 20.dp,
+                        topEnd = 20.dp,
+                        bottomStart = if (isUser) 20.dp else 6.dp,
+                        bottomEnd = if (isUser) 6.dp else 20.dp,
+                    ),
+                    modifier = Modifier
+                        .widthIn(max = 320.dp)
+                        .semantics(mergeDescendants = true) {
+                            contentDescription = "$speaker: ${message.text}"
+                        },
+                ) {
+                    Box(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        when {
+                            message.text.isEmpty() && message.status == Status.Streaming -> TypingIndicator()
+                            message.status == Status.Streaming -> Text(message.text + " ▍")
+                            message.text.isNotEmpty() -> Text(message.text)
+                        }
                     }
                 }
             }
@@ -335,12 +348,20 @@ private fun ChatConversationPreview() {
         ChatScreen(
             state = ChatUiState(
                 messages = listOf(
-                    ChatMessageUi("1", Role.User, "How do I request annual leave?"),
+                    ChatMessageUi("1", Role.User, "How many leave days do I have left?"),
                     ChatMessageUi(
                         "2",
                         Role.Assistant,
-                        "You can usually request leave through your HR portal",
+                        "You have 14 days of annual leave left",
                         Status.Streaming,
+                        tools = listOf(
+                            ToolActivityUi(
+                                "c1",
+                                "Checking your leave balance",
+                                ToolActivityUi.State.Done,
+                                ToolCard.LeaveBalance(2026, listOf(ToolCard.LeaveBalance.Item("Annual", 20.0, 6.0, 14.0))),
+                            ),
+                        ),
                     ),
                 ),
                 isResponding = true,
