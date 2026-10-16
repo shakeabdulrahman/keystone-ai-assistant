@@ -118,4 +118,20 @@
     <string name="document_meta">Version %1$s · effective %2$s · %3$s</string>
     <string name="document_cited_section">Cited in the answer</string>
     <string name="document_not_found">This document is no longer available.</string>
+    <!-- Confirmation cards (Phase 5) -->
+    <string name="action_status_pending">Needs your OK</string>
+    <string name="action_status_executing">Sending</string>
+    <string name="action_status_executed">Done</string>
+    <string name="action_status_cancelled">Cancelled</string>
+    <string name="action_status_expired">Expired</string>
+    <string name="action_status_failed">Not done</string>
+    <string name="action_working">Sending to the HR system…</string>
+    <string name="action_done">Done.</string>
+    <string name="action_cancelled_note">Cancelled. Nothing was changed.</string>
+    <string name="action_expired_note">This expired before it was confirmed. Ask again to prepare a new one.</string>
+    <string name="action_failed_note">This couldn’t be completed. Nothing was changed.</string>
+    <string name="action_error_network">Couldn’t reach the server. It’s safe to try again.</string>
+    <string name="action_error_other">That didn’t go through. Please try again.</string>
+    <string name="chat_suggestion_action">Book annual leave on Monday and Tuesday after next</string>
+    <string name="tool_status_cancelled">Cancelled</string>
 </resources>

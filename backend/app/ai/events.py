@@ -1,10 +1,11 @@
 """The streaming event contract between the gateway and the apps (see /contracts).
 
 Every chat turn is one SSE stream:
-    message.started → (text.delta | tool.started | tool.result)* → citations?
-                    → (message.completed | error)
-Tool events come in pairs with the same call_id. `citations` lists the policy passages the
-answer cited, just before completion. Later phases add confirmation.required.
+    message.started → (text.delta | tool.started | tool.result | confirmation.required)*
+                    → citations? → (message.completed | error)
+Tool events come in pairs with the same call_id. A write tool's tool.result is followed by
+`confirmation.required`: the card the user must confirm before anything changes.
+`citations` lists the policy passages the answer cited, just before completion.
 Clients must ignore event types they don't know, so old app versions keep working.
 """
 
@@ -47,6 +48,22 @@ class ToolResultOut(BaseModel):
     data: dict[str, Any]
 
 
+class FieldOut(BaseModel):
+    label: str
+    value: str
+
+
+class ConfirmationRequired(BaseModel):
+    type: Literal["confirmation.required"] = "confirmation.required"
+    action_id: str  # POST /v1/actions/{action_id}/confirm or /cancel
+    tool: str
+    title: str  # "Request annual leave"
+    fields: list[FieldOut]  # exactly what will be submitted
+    notes: list[str]  # policy reminders, e.g. "should be requested 4 weeks ahead"
+    confirm_label: str  # "Submit request"
+    expires_at: str  # ISO 8601; after this the user must ask again
+
+
 class CitationOut(BaseModel):
     ref: int  # the number used in the answer text: [1]
     document_id: str
@@ -80,6 +97,7 @@ StreamEvent = (
     | TextDeltaOut
     | ToolStarted
     | ToolResultOut
+    | ConfirmationRequired
     | CitationsOut
     | MessageCompleted
     | StreamError

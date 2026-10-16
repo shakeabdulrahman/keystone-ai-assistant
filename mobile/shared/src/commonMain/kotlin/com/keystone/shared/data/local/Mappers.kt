@@ -2,6 +2,7 @@ package com.keystone.shared.data.local
 
 import com.keystone.shared.data.remote.KeystoneJson
 import com.keystone.shared.data.remote.ToolCardParser
+import com.keystone.shared.data.remote.dto.ActionDto
 import com.keystone.shared.data.remote.dto.CitationsDto
 import com.keystone.shared.data.remote.dto.ConversationDto
 import com.keystone.shared.data.remote.dto.MessageDto
@@ -9,6 +10,7 @@ import com.keystone.shared.data.remote.dto.ToolResultPartDto
 import com.keystone.shared.data.remote.dto.toDomain
 import com.keystone.shared.domain.model.Citation
 import com.keystone.shared.domain.model.Conversation
+import com.keystone.shared.domain.model.PendingAction
 import com.keystone.shared.domain.model.StoredMessage
 import com.keystone.shared.domain.model.ToolCard
 import kotlinx.datetime.Instant
@@ -54,6 +56,7 @@ internal fun MessageEntity.toDomain() = StoredMessage(
     createdAt = Instant.fromEpochMilliseconds(createdAtMillis),
     cards = cardsFromParts(partsJson),
     citations = citationsFromParts(partsJson),
+    actions = actionsFromParts(partsJson),
 )
 
 private val PartsSerializer = ListSerializer(JsonElement.serializer())
@@ -88,3 +91,16 @@ internal fun citationsFromParts(partsJson: String): List<Citation> =
         .filter { it.partType() == "citations" }
         .mapNotNull { it.decodeOrNull(CitationsDto.serializer()) }
         .flatMap { part -> part.items.map { it.toDomain() } }
+
+/** Confirmation cards the answer showed, with the state the server reported for them. */
+internal fun actionsFromParts(partsJson: String): List<PendingAction> =
+    decodeParts(partsJson)
+        .filter { it.partType() == "confirmation" }
+        .mapNotNull { it.decodeOrNull(ActionDto.serializer()) }
+        .mapNotNull { dto ->
+            try {
+                dto.toDomain()
+            } catch (e: IllegalArgumentException) {
+                null // e.g. a malformed date: skip this card, keep the rest
+            }
+        }

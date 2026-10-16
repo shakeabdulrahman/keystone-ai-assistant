@@ -1,6 +1,7 @@
 package com.keystone.shared.data.remote
 
 import com.keystone.shared.core.AppError
+import com.keystone.shared.data.remote.dto.ActionDto
 import com.keystone.shared.data.remote.dto.CitationsDto
 import com.keystone.shared.data.remote.dto.MessageCompletedDto
 import com.keystone.shared.data.remote.dto.MessageStartedDto
@@ -15,7 +16,7 @@ import com.keystone.shared.domain.model.TokenUsage
 
 /**
  * Turns wire events into domain events. Unknown event types return null and are skipped:
- * that is what lets the server add new events (confirmations, ...) without breaking
+ * that is what lets the server add new events without breaking
  * app versions already installed on users' phones.
  */
 internal object ChatStreamMapper {
@@ -31,6 +32,10 @@ internal object ChatStreamMapper {
             val ok = it.status == "ok"
             ChatEvent.ToolResult(it.callId, it.tool, ok, if (ok) ToolCardParser.parse(it.ui, it.data) else null)
         }
+        // Unusable card data: skip the event (like an unknown one) rather than lose the answer.
+        "confirmation.required" -> runCatching { decode<ActionDto>(event).toDomain() }
+            .getOrNull()
+            ?.let { ChatEvent.ConfirmationRequired(it) }
         "citations" -> ChatEvent.Citations(decode<CitationsDto>(event).items.map { it.toDomain() })
         "message.completed" -> decode<MessageCompletedDto>(event).let {
             ChatEvent.Completed(

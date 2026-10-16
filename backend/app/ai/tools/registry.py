@@ -8,6 +8,10 @@ Every call goes through `ToolRegistry.execute`, which:
   4. enforces a timeout and turns every failure into a structured error the model can
      read and recover from (instead of crashing the conversation),
   5. measures latency for the audit log and metrics.
+
+Write tools (Phase 5) never change anything when the model calls them. Their handler only
+*prepares* a proposal (validated, with the exact details to show the user). The change
+runs later through `run_confirmed`, and only after the user taps Confirm in the app.
 """
 
 import asyncio
@@ -42,6 +46,15 @@ class NoArgs(ToolArgs):
     pass
 
 
+class ToolRejected(Exception):
+    """A business rule says no ("only 3 annual leave days left"). The message is written for
+    the employee, so it is safe to pass to the model and to show in the app."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
 @dataclass(frozen=True)
 class ToolContext:
     user: UserRecord
@@ -54,6 +67,11 @@ class ToolContext:
 
 ToolHandler = Callable[[Any, ToolContext], Awaitable[dict[str, Any]]]
 
+# A write tool's proposal: what the confirmation card shows.
+#   {"title": "Submit annual leave", "fields": [{"label": ..., "value": ...}],
+#    "confirm_label": "Submit request"}
+# and its result after confirmation: {"reference": "LR-1050", "message": "..."}
+
 
 @dataclass(frozen=True)
 class Tool:
@@ -62,8 +80,12 @@ class Tool:
     label: str  # written for people: shown while it runs ("Checking your leave balance")
     ui: str  # which card the app renders for the result
     args_model: type[ToolArgs]
-    handler: ToolHandler
-    read_only: bool = True
+    handler: ToolHandler  # read tools: the data. Write tools: the proposal to confirm.
+    execute: ToolHandler | None = None  # write tools only: runs after the user confirms
+
+    @property
+    def read_only(self) -> bool:
+        return self.execute is None
 
     def spec(self) -> ToolSpec:
         return ToolSpec(self.name, self.description, _clean_schema(self.args_model))
@@ -80,6 +102,13 @@ class ToolExecution:
     latency_ms: int
     arguments: dict[str, Any]
     error_code: str | None = None
+    # Write tools: the validated arguments to run with after confirmation. Frozen here, so
+    # the user confirms exactly what they see.
+    pending_arguments: dict[str, Any] | None = None
+
+    @property
+    def requires_confirmation(self) -> bool:
+        return self.pending_arguments is not None
 
     def for_model(self) -> str:
         """What the model sees: compact JSON, either the data or a readable error."""
@@ -96,6 +125,9 @@ class ToolRegistry:
     def specs(self) -> list[ToolSpec]:
         return [t.spec() for t in self._tools.values()]
 
+    def get(self, name: str) -> Tool | None:
+        return self._tools.get(name)
+
     def label_for(self, name: str) -> str:
         tool = self._tools.get(name)
         return tool.label if tool else "Working on it"
@@ -105,7 +137,10 @@ class ToolRegistry:
         tool = self._tools.get(call.name)
 
         def result(
-            status: Literal["ok", "error"], data: dict[str, Any], error: str | None = None
+            status: Literal["ok", "error"],
+            data: dict[str, Any],
+            error: str | None = None,
+            pending: dict[str, Any] | None = None,
         ) -> ToolExecution:
             return ToolExecution(
                 call_id=call.id,
@@ -117,6 +152,7 @@ class ToolRegistry:
                 latency_ms=round((time.perf_counter() - started) * 1000),
                 arguments=call.arguments,
                 error_code=error,
+                pending_arguments=pending,
             )
 
         if tool is None:
@@ -138,6 +174,8 @@ class ToolRegistry:
         try:
             async with asyncio.timeout(self._timeout_s):
                 data = await tool.handler(args, ctx)
+        except ToolRejected as exc:
+            return result("error", {"message": exc.message}, "rejected")
         except TimeoutError:
             logger.warning("tool_timeout", extra={"tool": tool.name})
             return result(
@@ -147,9 +185,24 @@ class ToolRegistry:
             logger.exception("tool_failed", extra={"tool": tool.name})
             return result("error", {"message": "The HR system returned an error."}, "tool_failed")
 
+        if not tool.read_only:
+            return result("ok", data, pending=args.model_dump(mode="json"))
         if len(json.dumps(data, default=str)) > MAX_RESULT_CHARS:
             data = _truncate(data)
         return result("ok", data)
+
+    async def run_confirmed(
+        self, name: str, arguments: dict[str, Any], ctx: ToolContext
+    ) -> dict[str, Any]:
+        """Runs a write tool the user confirmed. Re-checks the rules first (the balance may
+        have changed since the proposal). Raises ToolRejected, TimeoutError or the error."""
+        tool = self._tools.get(name)
+        if tool is None or tool.execute is None:
+            raise ToolRejected("This action is no longer available.")
+        args = tool.args_model.model_validate(arguments)
+        async with asyncio.timeout(self._timeout_s):
+            await tool.handler(args, ctx)  # re-validate: raises ToolRejected if stale
+            return await tool.execute(args, ctx)
 
 
 def _clean_schema(model: type[BaseModel]) -> dict[str, Any]:
@@ -158,7 +211,11 @@ def _clean_schema(model: type[BaseModel]) -> dict[str, Any]:
 
     def strip(node: Any) -> Any:
         if isinstance(node, dict):
-            return {k: strip(v) for k, v in node.items() if k != "title"}
+            # Only *metadata* titles (strings). A property that is itself called "title"
+            # (e.g. an HR request's subject) has a schema object as its value and must stay.
+            return {
+                k: strip(v) for k, v in node.items() if not (k == "title" and isinstance(v, str))
+            }
         if isinstance(node, list):
             return [strip(v) for v in node]
         return node

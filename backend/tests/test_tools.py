@@ -35,11 +35,27 @@ async def run(name: str, args: dict[str, Any] | None = None, who: str = "alice")
     return await build_hr_registry().execute(ToolCall("c1", name, args or {}), ctx(who))
 
 
+def _metadata_titles(node: Any) -> list[str]:
+    if isinstance(node, dict):
+        own = [v for k, v in node.items() if k == "title" and isinstance(v, str)]
+        return own + [t for v in node.values() for t in _metadata_titles(v)]
+    if isinstance(node, list):
+        return [t for v in node for t in _metadata_titles(v)]
+    return []
+
+
 def test_every_tool_has_a_clean_object_schema() -> None:
     for spec in build_hr_registry().specs():
         assert spec.parameters["type"] == "object"
-        assert "title" not in json.dumps(spec.parameters)  # noise for small models
+        assert _metadata_titles(spec.parameters) == []  # noise for small models
+        # Every required field is still described (stripping must not remove properties).
+        assert set(spec.parameters.get("required", [])) <= set(spec.parameters["properties"])
         assert spec.description
+
+
+def test_a_property_named_title_survives_schema_cleaning() -> None:
+    [spec] = [s for s in build_hr_registry().specs() if s.name == "createHrRequest"]
+    assert spec.parameters["properties"]["title"]["type"] == "string"
 
 
 async def test_unknown_tool_is_a_readable_error() -> None:

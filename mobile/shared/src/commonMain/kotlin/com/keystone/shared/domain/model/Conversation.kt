@@ -19,6 +19,8 @@ data class StoredMessage(
     val cards: List<ToolCard> = emptyList(),
     /** Policy sources the answer cited. */
     val citations: List<Citation> = emptyList(),
+    /** Changes the answer prepared, with their current state (confirmed, expired, ...). */
+    val actions: List<PendingAction> = emptyList(),
 ) {
     enum class Role { User, Assistant }
 

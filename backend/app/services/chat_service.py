@@ -12,10 +12,11 @@ Split in two on purpose:
 
 import asyncio
 import contextlib
+import dataclasses
 import logging
 import time
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -26,6 +27,8 @@ from fastapi import HTTPException
 from app.ai.events import (
     CitationOut,
     CitationsOut,
+    ConfirmationRequired,
+    FieldOut,
     MessageCompleted,
     MessageStarted,
     StreamError,
@@ -51,6 +54,7 @@ from app.integrations.hris import HrisClient
 from app.rag.citations import Citation, SourceBook
 from app.rag.retriever import Retriever
 from app.repositories.base import (
+    ActionRecord,
     ConversationRepository,
     DuplicateMessageError,
     MessageRecord,
@@ -60,6 +64,7 @@ from app.repositories.base import (
     ToolAuditRepository,
     UserRecord,
 )
+from app.services.actions import ActionService
 from app.services.titles import TitleGenerator, fallback_title
 
 logger = logging.getLogger("keystone.chat")
@@ -87,6 +92,7 @@ class AgentTools:
     audit: ToolAuditRepository
     max_steps: int = 4
     knowledge: Retriever | None = None  # policy search (RAG); None disables it
+    actions: ActionService | None = None  # write tools; None means they can't be proposed
 
 
 @dataclass(frozen=True)
@@ -108,6 +114,7 @@ class ChatService:
         max_output_tokens: int,
         titles: TitleGenerator | None = None,
         tools: AgentTools | None = None,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._provider = provider
         self._conversations = conversations
@@ -115,6 +122,7 @@ class ChatService:
         self._max_output_tokens = max_output_tokens
         self._titles = titles
         self._tools = tools
+        self._clock = clock  # "today" for prompts and HR rules; fixed in tests
 
     async def start_turn(
         self,
@@ -146,12 +154,15 @@ class ChatService:
             conversation.id, self._history_messages * 2
         )
         kept = _completed_exchanges(recent)[-self._history_messages :]
-        history = [ChatMessage(role=m.role, content=m.content) for m in kept]
+        outcomes = await self._action_outcomes(kept)
+        history = [
+            ChatMessage(role=m.role, content=m.content + outcomes.get(m.id, "")) for m in kept
+        ]
         is_first = not conversation.title_generated and len(recent) == 1
         return ChatTurn(user, conversation.id, user_message.id, history, is_first)
 
     async def stream_turn(self, turn: ChatTurn) -> AsyncGenerator[StreamEvent, None]:
-        today = datetime.now(UTC).date()
+        today = self._clock().date()
         system = system_prompt(today)
         tool_specs = self._tools.registry.specs() if self._tools else []
         max_steps = self._tools.max_steps if self._tools else 1
@@ -160,6 +171,7 @@ class ChatService:
         assistant_id = uuid.uuid4()  # announced now, used as the stored row's ID at the end
         parts: list[str] = []
         executions: list[ToolExecution] = []
+        proposed: list[ActionRecord] = []  # at most one change to confirm per answer
         sources = SourceBook()  # numbers every retrieved passage once per answer
         citations: list[Citation] = []
         status: MessageStatus = "failed"
@@ -233,6 +245,11 @@ class ChatService:
                         label=self._tools.registry.label_for(call.name),
                     )
                     execution = await self._tools.registry.execute(call, ctx)
+                    action: ActionRecord | None = None
+                    if execution.requires_confirmation:
+                        execution, action = await self._propose(
+                            turn, assistant_id, execution, proposed
+                        )
                     executions.append(execution)
                     yield ToolResultOut(
                         call_id=execution.call_id,
@@ -241,6 +258,8 @@ class ChatService:
                         ui=execution.ui,
                         data=execution.data,
                     )
+                    if action is not None:
+                        yield _confirmation_event(action)
                     working.append(
                         ChatMessage(
                             "tool",
@@ -290,6 +309,7 @@ class ChatService:
                     duration_ms,
                     executions,
                     citations,
+                    proposed,
                 )
             logger.info(
                 "chat_turn",
@@ -305,6 +325,7 @@ class ChatService:
                     "tool_errors": sum(e.status == "error" for e in executions),
                     "sources_retrieved": len(sources),
                     "sources_cited": len(citations),
+                    "actions_proposed": len(proposed),
                     "ttft_ms": round(first_output_ms, 1) if first_output_ms is not None else None,
                     "duration_ms": round(duration_ms, 1),
                     "input_tokens": usage.input_tokens,
@@ -326,8 +347,10 @@ class ChatService:
         duration_ms: float,
         executions: list[ToolExecution],
         citations: list[Citation],
+        proposed: list[ActionRecord],
     ) -> None:
         parts = [_tool_part(e) for e in executions]
+        parts += [{"type": "confirmation", **_confirmation_part(a)} for a in proposed]
         if citations:
             parts.append({"type": "citations", "items": [c.to_dict() for c in citations]})
         try:
@@ -368,6 +391,114 @@ class ChatService:
             # The user already has the answer on screen; failing to save it must not crash
             # the stream. Log loudly so it shows up in monitoring.
             logger.exception("save_answer_failed")
+
+    async def _propose(
+        self,
+        turn: ChatTurn,
+        message_id: uuid.UUID,
+        execution: ToolExecution,
+        proposed: list[ActionRecord],
+    ) -> tuple[ToolExecution, ActionRecord | None]:
+        """Turns a write tool's proposal into a stored action awaiting the user's decision.
+
+        What the model gets back says the change is *waiting*, so it can't claim it's done.
+        """
+        service = self._tools.actions if self._tools else None
+        if service is None:
+            return _as_error(execution, "tool_failed", "Actions aren't available right now."), None
+        if proposed:
+            return (
+                _as_error(
+                    execution,
+                    "one_action_at_a_time",
+                    "Only one change can be prepared at a time. Ask the employee to "
+                    "confirm or cancel the first one, then try again.",
+                ),
+                None,
+            )
+        action = await service.propose(turn.user, turn.conversation_id, message_id, execution)
+        proposed.append(action)
+        waiting = dataclasses.replace(
+            execution,
+            ui=None,
+            data={
+                "action_id": str(action.id),
+                "status": "awaiting_confirmation",
+                "summary": str(execution.data.get("title", "")),
+            },
+        )
+        return waiting, action
+
+    async def _action_outcomes(self, messages: list[MessageRecord]) -> dict[uuid.UUID, str]:
+        """For the model's context: what became of actions proposed in earlier answers, so
+        "did my leave go through?" gets a true answer. Appended to those answers' text."""
+        service = self._tools.actions if self._tools else None
+        if service is None:
+            return {}
+        by_message: dict[uuid.UUID, list[uuid.UUID]] = {}
+        for m in messages:
+            for part in m.parts or []:
+                if part.get("type") == "confirmation" and part.get("action_id"):
+                    with contextlib.suppress(ValueError):
+                        by_message.setdefault(m.id, []).append(uuid.UUID(part["action_id"]))
+        if not by_message:
+            return {}
+        found = await service.repository.get_many([a for ids in by_message.values() for a in ids])
+        notes: dict[uuid.UUID, str] = {}
+        for message_id, ids in by_message.items():
+            lines = [_outcome_line(found[i]) for i in ids if i in found]
+            if lines:
+                notes[message_id] = "\n" + "\n".join(lines)
+        return notes
+
+
+def _as_error(execution: ToolExecution, code: str, message: str) -> ToolExecution:
+    return dataclasses.replace(
+        execution,
+        status="error",
+        ui=None,
+        data={"message": message},
+        error_code=code,
+        pending_arguments=None,
+    )
+
+
+def _confirmation_part(action: ActionRecord) -> dict[str, Any]:
+    card = action.card
+    return {
+        "action_id": str(action.id),
+        "tool": action.tool_name,
+        "title": str(card.get("title", "")),
+        "fields": list(card.get("fields", [])),
+        "notes": list(card.get("notes", [])),
+        "confirm_label": str(card.get("confirm_label", "Confirm")),
+        "expires_at": action.expires_at.isoformat(),
+        "status": action.status,
+    }
+
+
+def _confirmation_event(action: ActionRecord) -> ConfirmationRequired:
+    part = _confirmation_part(action)
+    return ConfirmationRequired(
+        action_id=part["action_id"],
+        tool=part["tool"],
+        title=part["title"],
+        fields=[FieldOut.model_validate(f) for f in part["fields"]],
+        notes=part["notes"],
+        confirm_label=part["confirm_label"],
+        expires_at=part["expires_at"],
+    )
+
+
+def _outcome_line(action: ActionRecord) -> str:
+    title = str(action.card.get("title", action.tool_name))
+    if action.status == "executed" and action.result:
+        return f"[Action '{title}': confirmed and done, reference {action.result.get('reference')}]"
+    if action.status == "failed":
+        return f"[Action '{title}': failed: {action.error_message}]"
+    if action.status == "pending":
+        return f"[Action '{title}': still waiting for the employee to confirm]"
+    return f"[Action '{title}': {action.status}, nothing was changed]"
 
 
 def _tool_part(execution: ToolExecution) -> dict[str, Any]:

@@ -6,6 +6,7 @@ import com.keystone.shared.data.remote.createHttpClient
 import com.keystone.shared.data.repository.ChatRepositoryImpl
 import com.keystone.shared.domain.model.ChatEvent
 import com.keystone.shared.domain.model.Citation
+import com.keystone.shared.domain.model.PendingAction
 import com.keystone.shared.domain.model.ToolCard
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -119,5 +120,22 @@ class ChatContractFixturesTest {
             ),
             citation,
         )
+    }
+
+    @Test
+    fun actionFixtureProducesAConfirmationCard() = runTest {
+        val events = play("chat_stream_action.sse")
+        assertEquals(
+            listOf(
+                ChatEvent.Started::class, ChatEvent.ToolStarted::class, ChatEvent.ToolResult::class,
+                ChatEvent.ConfirmationRequired::class, ChatEvent.Delta::class, ChatEvent.Completed::class,
+            ),
+            events.map { it::class },
+        )
+        val action = assertIs<ChatEvent.ConfirmationRequired>(events[3]).action
+        assertEquals("0f8e7d6c-5b4a-4392-8170-6f5e4d3c2b1a", action.id)
+        assertEquals("Submit request", action.confirmLabel)
+        assertEquals(PendingAction.Status.Pending, action.status)
+        assertEquals(PendingAction.Field("Working days", "2"), action.fields[2])
     }
 }

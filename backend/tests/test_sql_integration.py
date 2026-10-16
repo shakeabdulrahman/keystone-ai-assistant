@@ -23,8 +23,9 @@ from app.rag.eval import evaluate, load_cases
 from app.rag.ingest import ingest
 from app.rag.retriever import Retriever
 from app.rag.sql_store import SqlKnowledgeStore
-from app.repositories.base import DuplicateMessageError, NewMessage
+from app.repositories.base import ActionRecord, DuplicateMessageError, NewMessage
 from app.repositories.sql import (
+    SqlActionRepository,
     SqlConversationRepository,
     SqlToolAuditRepository,
     SqlUserRepository,
@@ -196,3 +197,61 @@ async def test_knowledge_base_on_postgres(db: Database, tmp_path: object) -> Non
     assert await store.get_document("leave-policy") is None
     remaining = await store.text_search("carry over annual leave", 10)
     assert all(h.chunk.document_id != "leave-policy" for h in remaining)  # chunks cascade
+
+
+async def test_action_claims_are_atomic_on_postgres(db: Database) -> None:
+    """Ten confirms racing for one action: exactly one wins the pending → executing step."""
+    from datetime import UTC, datetime, timedelta
+
+    users = SqlUserRepository(db.session_factory)
+    conversations = SqlConversationRepository(db.session_factory)
+    actions = SqlActionRepository(db.session_factory)
+    user = await users.get_or_create("alice", None, None)
+    other = await users.get_or_create("bob", None, None)
+    conversation = await conversations.create(user.id, "Leave")
+    now = datetime.now(UTC)
+    action = ActionRecord(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        conversation_id=conversation.id,
+        message_id=uuid.uuid4(),
+        call_id="c1",
+        tool_name="submitLeaveRequest",
+        arguments={"leave_type": "annual"},
+        card={"title": "Request annual leave", "fields": []},
+        status="pending",
+        created_at=now,
+        expires_at=now + timedelta(minutes=15),
+    )
+    await actions.create(action)
+
+    assert await actions.get_owned(other.id, action.id) is None  # not Bob's
+    assert await actions.transition(other.id, action.id, "pending", "executing", now) is None
+
+    results = await asyncio.gather(
+        *(actions.transition(user.id, action.id, "pending", "executing", now) for _ in range(10))
+    )
+    assert sum(r is not None for r in results) == 1
+
+    done = await actions.finish(
+        action.id, "executed", result={"reference": "LR-1050", "message": "ok"}
+    )
+    assert done.status == "executed" and done.result == {"reference": "LR-1050", "message": "ok"}
+    assert (await actions.get_many([action.id, uuid.uuid4()]))[action.id].status == "executed"
+
+    # Expired proposals can't be claimed.
+    stale = ActionRecord(
+        **{
+            **action.__dict__,
+            "id": uuid.uuid4(),
+            "status": "pending",
+            "expires_at": now - timedelta(seconds=1),
+        }
+    )
+    await actions.create(stale)
+    assert (
+        await actions.transition(
+            user.id, stale.id, "pending", "executing", now, unexpired_only=True
+        )
+        is None
+    )

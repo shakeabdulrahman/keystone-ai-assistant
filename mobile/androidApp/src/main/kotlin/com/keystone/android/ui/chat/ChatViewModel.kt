@@ -8,11 +8,14 @@ import com.keystone.android.ui.chat.ChatMessageUi.Status
 import com.keystone.shared.core.AppError
 import com.keystone.shared.core.AppResult
 import com.keystone.shared.domain.model.ChatEvent
+import com.keystone.shared.domain.model.PendingAction
 import com.keystone.shared.domain.model.StoredMessage
+import com.keystone.shared.domain.repository.ActionRepository
 import com.keystone.shared.domain.repository.ChatRepository
 import com.keystone.shared.domain.repository.ConversationRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,6 +25,7 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
 /**
@@ -43,6 +47,7 @@ import kotlin.time.TimeSource
 class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
     private val conversationRepository: ConversationRepository,
+    private val actionRepository: ActionRepository,
     savedStateHandle: SavedStateHandle,
     private val timeSource: TimeSource,
 ) : ViewModel() {
@@ -181,6 +186,10 @@ class ChatViewModel @Inject constructor(
                                 )
                             }
                         }
+                        is ChatEvent.ConfirmationRequired -> {
+                            flush()
+                            updateMessage(replyId) { it.copy(actions = it.actions + ActionUi(event.action)) }
+                        }
                         is ChatEvent.Citations -> {
                             flush()
                             updateMessage(replyId) { it.copy(citations = event.items) }
@@ -202,6 +211,58 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** The employee tapped the card's confirm button. Only this ever runs the change. */
+    fun onConfirmAction(actionId: String) = decide(actionId) { actionRepository.confirm(it) }
+
+    /** The employee tapped Cancel on the card. */
+    fun onCancelAction(actionId: String) = decide(actionId) { actionRepository.cancel(it) }
+
+    private fun decide(actionId: String, call: suspend (String) -> AppResult<PendingAction>) {
+        val current = findAction(actionId) ?: return
+        if (current.busy || !current.action.status.isOpen) return // ignore double taps
+        updateAction(actionId) { it.copy(busy = true, error = null) }
+        viewModelScope.launch {
+            when (val result = call(actionId)) {
+                is AppResult.Success -> {
+                    updateAction(actionId) { ActionUi(result.value) }
+                    if (result.value.status == PendingAction.Status.Executing) awaitOutcome(actionId)
+                }
+                // Not decided (e.g. offline). Confirming is idempotent, so retrying is safe.
+                is AppResult.Failure -> updateAction(actionId) { it.copy(busy = false, error = result.error) }
+            }
+            syncCache() // history shows the new state, also offline
+        }
+    }
+
+    /** Another request is running this action right now: check back until it settles. */
+    private suspend fun awaitOutcome(actionId: String) {
+        repeat(OUTCOME_POLLS) {
+            delay(OUTCOME_POLL_INTERVAL)
+            val latest = actionRepository.get(actionId)
+            if (latest is AppResult.Success) {
+                updateAction(actionId) { ActionUi(latest.value) }
+                if (latest.value.status != PendingAction.Status.Executing) return
+            }
+        }
+    }
+
+    private fun findAction(actionId: String): ActionUi? =
+        _uiState.value.messages.firstNotNullOfOrNull { m -> m.actions.firstOrNull { it.action.id == actionId } }
+
+    private fun updateAction(actionId: String, transform: (ActionUi) -> ActionUi) {
+        _uiState.update { state ->
+            state.copy(
+                messages = state.messages.map { message ->
+                    if (message.actions.none { it.action.id == actionId }) {
+                        message
+                    } else {
+                        message.copy(actions = message.actions.map { if (it.action.id == actionId) transform(it) else it })
+                    }
+                },
+            )
+        }
+    }
+
     private fun updateMessage(id: String, transform: (ChatMessageUi) -> ChatMessageUi) {
         _uiState.update { state ->
             state.copy(messages = state.messages.map { if (it.id == id) transform(it) else it })
@@ -212,6 +273,8 @@ class ChatViewModel @Inject constructor(
 
     companion object {
         val FLUSH_INTERVAL = 40.milliseconds
+        val OUTCOME_POLL_INTERVAL = 2.seconds
+        const val OUTCOME_POLLS = 5
 
         /** Matches the property name in ChatDestination (type-safe navigation argument). */
         const val CONVERSATION_ID_ARG = "conversationId"
@@ -236,4 +299,5 @@ private fun StoredMessage.toUi() = ChatMessageUi(
     error = if (status == StoredMessage.Status.Failed) AppError.Assistant("ai_unavailable", retryable = true) else null,
     tools = cards.mapIndexed { index, card -> ToolActivityUi("$id-$index", "", ToolActivityUi.State.Done, card) },
     citations = citations,
+    actions = actions.map { ActionUi(it) },
 )

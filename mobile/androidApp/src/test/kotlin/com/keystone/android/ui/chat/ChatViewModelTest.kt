@@ -6,12 +6,16 @@ import com.keystone.android.fakes.FakeConversationRepository
 import com.keystone.android.ui.chat.ChatMessageUi.Role
 import com.keystone.android.ui.chat.ChatMessageUi.Status
 import com.keystone.shared.core.AppError
+import com.keystone.shared.core.AppResult
 import com.keystone.shared.domain.model.ChatEvent
 import com.keystone.shared.domain.model.Citation
+import com.keystone.shared.domain.model.PendingAction
 import com.keystone.shared.domain.model.StoredMessage
 import com.keystone.shared.domain.model.TokenUsage
 import com.keystone.shared.domain.model.ToolCard
+import com.keystone.shared.domain.repository.ActionRepository
 import com.keystone.shared.domain.repository.ChatRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
@@ -58,12 +62,32 @@ class ChatViewModelTest {
 
     private val history = FakeConversationRepository()
 
+    /** Scripted decisions; records every call so tests can check nothing runs twice. */
+    private class FakeActions : ActionRepository {
+        val calls = mutableListOf<String>()
+        var next: (String, String) -> AppResult<PendingAction> = { _, _ -> AppResult.Failure(AppError.Unknown) }
+        var gate: CompletableDeferred<Unit>? = null
+
+        override suspend fun confirm(actionId: String) = record("confirm", actionId)
+        override suspend fun cancel(actionId: String) = record("cancel", actionId)
+        override suspend fun get(actionId: String) = record("get", actionId)
+
+        private suspend fun record(kind: String, id: String): AppResult<PendingAction> {
+            calls += "$kind:$id"
+            gate?.await()
+            return next(kind, id)
+        }
+    }
+
+    private val actions = FakeActions()
+
     private fun kotlinx.coroutines.test.TestScope.viewModel(
         repo: ChatRepository,
         conversationId: String? = null,
     ) = ChatViewModel(
         repo,
         history,
+        actions,
         SavedStateHandle(mapOf(ChatViewModel.CONVERSATION_ID_ARG to conversationId)),
         testScheduler.timeSource,
     )
@@ -325,6 +349,136 @@ class ChatViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf(source), vm.uiState.value.messages[1].citations)
+    }
+
+    private val proposal = PendingAction(
+        id = "a1",
+        tool = "submitLeaveRequest",
+        title = "Request annual leave",
+        fields = listOf(PendingAction.Field("Working days", "2")),
+        notes = emptyList(),
+        confirmLabel = "Submit request",
+        expiresAt = Instant.fromEpochMilliseconds(4_102_444_800_000), // year 2100
+        status = PendingAction.Status.Pending,
+    )
+
+    private fun proposingReply() = flow<ChatEvent> {
+        emit(ChatEvent.Started("c1", "m1", "u1"))
+        emit(ChatEvent.ToolStarted("call_1", "submitLeaveRequest", "Preparing your leave request"))
+        emit(ChatEvent.ToolResult("call_1", "submitLeaveRequest", ok = true, card = null))
+        emit(ChatEvent.ConfirmationRequired(proposal))
+        emit(ChatEvent.Delta("Please confirm."))
+        emit(ChatEvent.Completed("m1", truncated = false, usage = TokenUsage(1, 1)))
+    }
+
+    private fun executed() = proposal.copy(
+        status = PendingAction.Status.Executed,
+        result = PendingAction.Result("LR-1050", "Leave request LR-1050 submitted."),
+    )
+
+    @Test
+    fun `a proposal shows a confirmation card and changes nothing by itself`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val vm = viewModel(FakeChatRepository(proposingReply()))
+            vm.onSuggestion("Book leave")
+            advanceUntilIdle()
+
+            assertEquals(listOf(ActionUi(proposal)), vm.uiState.value.messages.last().actions)
+            assertEquals(emptyList<String>(), actions.calls) // only a tap confirms
+        }
+
+    @Test
+    fun `confirming shows the result and a double tap sends one request`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val vm = viewModel(FakeChatRepository(proposingReply()))
+            vm.onSuggestion("Book leave")
+            advanceUntilIdle()
+            actions.gate = CompletableDeferred()
+            actions.next = { _, _ -> AppResult.Success(executed()) }
+
+            vm.onConfirmAction("a1")
+            runCurrent()
+            assertTrue(vm.uiState.value.messages.last().actions.single().busy)
+            vm.onConfirmAction("a1") // second tap while the first is in flight
+            actions.gate?.complete(Unit)
+            advanceUntilIdle()
+
+            assertEquals(listOf("confirm:a1"), actions.calls)
+            val card = vm.uiState.value.messages.last().actions.single()
+            assertEquals(ActionUi(executed()), card)
+            vm.onConfirmAction("a1") // closed: ignored
+            vm.onCancelAction("a1")
+            advanceUntilIdle()
+            assertEquals(listOf("confirm:a1"), actions.calls)
+        }
+
+    @Test
+    fun `offline confirm keeps the card open with an error and can be retried`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val vm = viewModel(FakeChatRepository(proposingReply()))
+            vm.onSuggestion("Book leave")
+            advanceUntilIdle()
+            actions.next = { _, _ -> AppResult.Failure(AppError.Network) }
+
+            vm.onConfirmAction("a1")
+            advanceUntilIdle()
+            val failed = vm.uiState.value.messages.last().actions.single()
+            assertEquals(ActionUi(proposal, busy = false, error = AppError.Network), failed)
+
+            actions.next = { _, _ -> AppResult.Success(executed()) }
+            vm.onConfirmAction("a1")
+            advanceUntilIdle()
+            assertEquals(ActionUi(executed()), vm.uiState.value.messages.last().actions.single())
+        }
+
+    @Test
+    fun `an action another request is running is checked until it settles`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val vm = viewModel(FakeChatRepository(proposingReply()))
+            vm.onSuggestion("Book leave")
+            advanceUntilIdle()
+            var gets = 0
+            actions.next = { kind, _ ->
+                when (kind) {
+                    "confirm" -> AppResult.Success(proposal.copy(status = PendingAction.Status.Executing))
+                    else -> AppResult.Success(if (++gets < 2) proposal.copy(status = PendingAction.Status.Executing) else executed())
+                }
+            }
+
+            vm.onConfirmAction("a1")
+            advanceUntilIdle()
+
+            assertEquals(listOf("confirm:a1", "get:a1", "get:a1"), actions.calls)
+            assertEquals(ActionUi(executed()), vm.uiState.value.messages.last().actions.single())
+        }
+
+    @Test
+    fun `cancel closes the card`() = runTest(mainDispatcherRule.dispatcher) {
+        val vm = viewModel(FakeChatRepository(proposingReply()))
+        vm.onSuggestion("Book leave")
+        advanceUntilIdle()
+        actions.next = { _, _ -> AppResult.Success(proposal.copy(status = PendingAction.Status.Cancelled)) }
+
+        vm.onCancelAction("a1")
+        advanceUntilIdle()
+
+        assertEquals(listOf("cancel:a1"), actions.calls)
+        assertEquals(PendingAction.Status.Cancelled, vm.uiState.value.messages.last().actions.single().action.status)
+    }
+
+    @Test
+    fun `history shows the saved state of past proposals`() = runTest(mainDispatcherRule.dispatcher) {
+        history.serverMessages = mapOf(
+            "c7" to listOf(
+                stored("1", StoredMessage.Role.User, "Book leave", StoredMessage.Status.Complete),
+                stored("22", StoredMessage.Role.Assistant, "Please confirm.", StoredMessage.Status.Complete)
+                    .copy(actions = listOf(executed())),
+            ),
+        )
+        val vm = viewModel(FakeChatRepository(), conversationId = "c7")
+        advanceUntilIdle()
+
+        assertEquals(listOf(ActionUi(executed())), vm.uiState.value.messages[1].actions)
     }
 
     @Test

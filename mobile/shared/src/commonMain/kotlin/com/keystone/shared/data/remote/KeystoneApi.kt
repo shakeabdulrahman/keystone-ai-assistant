@@ -1,5 +1,6 @@
 package com.keystone.shared.data.remote
 
+import com.keystone.shared.data.remote.dto.ActionDto
 import com.keystone.shared.data.remote.dto.ChatRequestDto
 import com.keystone.shared.data.remote.dto.ConversationDto
 import com.keystone.shared.data.remote.dto.ConversationPageDto
@@ -64,6 +65,15 @@ class KeystoneApi(
     internal suspend fun deleteConversation(conversationId: String) {
         client.delete("$baseUrl/v1/conversations/$conversationId")
     }
+
+    internal suspend fun getAction(actionId: String): ActionDto =
+        client.get("$baseUrl/v1/actions/${actionId.encodeURLPathPart()}").body()
+
+    internal suspend fun confirmAction(actionId: String): ActionDto =
+        client.post("$baseUrl/v1/actions/${actionId.encodeURLPathPart()}/confirm").body()
+
+    internal suspend fun cancelAction(actionId: String): ActionDto =
+        client.post("$baseUrl/v1/actions/${actionId.encodeURLPathPart()}/cancel").body()
 
     internal suspend fun getDocument(documentId: String): DocumentDto =
         client.get("$baseUrl/v1/documents/${documentId.encodeURLPathPart()}").body()

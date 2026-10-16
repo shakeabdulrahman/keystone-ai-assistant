@@ -7,12 +7,16 @@ boundary. `DemoHrisClient` generates believable, synthetic data that is:
   - relative to today, so "upcoming" meetings are always upcoming;
   - different for every user, so data isolation is visible in demos and tests.
 Replacing it with a real HRIS means writing one class that implements `HrisClient`.
+
+Writes (Phase 5) are kept in memory on top of the generated data, so they show up in
+later reads. A real HRIS persists them; the demo forgets them when the server restarts
+(the confirmed actions themselves are still stored in our database).
 """
 
 import hashlib
 import random
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Protocol
 
@@ -46,7 +50,7 @@ class LeaveRequest:
     start: date
     end: date
     days: float
-    status: str  # pending | approved | rejected
+    status: str  # pending | approved | rejected | cancelled
     submitted_on: date
 
 
@@ -87,6 +91,10 @@ class Notification:
     read: bool
 
 
+class HrisError(Exception):
+    """The HR system refused a change (e.g. the record no longer exists)."""
+
+
 class HrisClient(Protocol):
     async def profile(self, user_id: uuid.UUID, email: str | None) -> EmployeeProfile: ...
     async def leave_balances(self, user_id: uuid.UUID) -> list[LeaveBalance]: ...
@@ -95,6 +103,16 @@ class HrisClient(Protocol):
     async def tasks(self, user_id: uuid.UUID) -> list[Task]: ...
     async def appointments(self, user_id: uuid.UUID) -> list[Appointment]: ...
     async def notifications(self, user_id: uuid.UUID) -> list[Notification]: ...
+
+    # --- Writes (always on behalf of the signed-in user, after they confirmed) ---
+    async def submit_leave(
+        self, user_id: uuid.UUID, leave_type: str, start: date, end: date, days: float
+    ) -> LeaveRequest: ...
+    async def cancel_leave(self, user_id: uuid.UUID, request_id: str) -> LeaveRequest: ...
+    async def create_hr_request(
+        self, user_id: uuid.UUID, category: str, title: str, details: str
+    ) -> HrRequest: ...
+    async def complete_task(self, user_id: uuid.UUID, task_id: str) -> Task: ...
 
 
 _FIRST = ["Aisha", "Rahul", "Maria", "Chen", "Fatima", "Arjun", "Sofia", "Daniel", "Priya", "Omar"]
@@ -114,6 +132,11 @@ class DemoHrisClient:
 
     def __init__(self, today: date | None = None) -> None:
         self._today = today  # fixed in tests; None means "the real today"
+        # In-memory changes per user, layered over the generated data.
+        self._new_leave: dict[uuid.UUID, list[LeaveRequest]] = {}
+        self._cancelled_leave: dict[uuid.UUID, set[str]] = {}
+        self._new_hr: dict[uuid.UUID, list[HrRequest]] = {}
+        self._done_tasks: dict[uuid.UUID, set[str]] = {}
 
     def _now(self) -> date:
         return self._today or datetime.now(UTC).date()
@@ -138,13 +161,37 @@ class DemoHrisClient:
 
     async def leave_balances(self, user_id: uuid.UUID) -> list[LeaveBalance]:
         rng = self._rng(user_id, "balance")
-        return [
+        base = [
             LeaveBalance("Annual", 20, rng.randint(0, 14)),
             LeaveBalance("Sick", 10, rng.randint(0, 4)),
             LeaveBalance("Casual", 6, rng.randint(0, 5)),
         ]
+        # New requests use days up; cancelled ones give them back.
+        delta: dict[str, float] = {}
+        for r in self._new_leave.get(user_id, []):
+            if r.status != "cancelled":
+                delta[r.leave_type] = delta.get(r.leave_type, 0) + r.days
+        cancelled = self._cancelled_leave.get(user_id, set())
+        for r in self._generated_leave(user_id):
+            if r.id in cancelled and r.status in ("pending", "approved"):
+                delta[r.leave_type] = delta.get(r.leave_type, 0) - r.days
+        return [
+            LeaveBalance(
+                b.leave_type, b.entitled_days, max(0, b.used_days + delta.get(b.leave_type, 0))
+            )
+            for b in base
+        ]
 
     async def leave_requests(self, user_id: uuid.UUID) -> list[LeaveRequest]:
+        cancelled = self._cancelled_leave.get(user_id, set())
+        generated = [
+            replace(r, status="cancelled") if r.id in cancelled else r
+            for r in self._generated_leave(user_id)
+        ]
+        everything = generated + self._new_leave.get(user_id, [])
+        return sorted(everything, key=lambda r: r.start, reverse=True)
+
+    def _generated_leave(self, user_id: uuid.UUID) -> list[LeaveRequest]:
         rng = self._rng(user_id, "leave")
         today = self._now()
         requests = []
@@ -165,7 +212,7 @@ class DemoHrisClient:
                     submitted_on=min(start - timedelta(days=rng.randint(3, 20)), today),
                 )
             )
-        return sorted(requests, key=lambda r: r.start, reverse=True)
+        return requests
 
     async def hr_requests(self, user_id: uuid.UUID) -> list[HrRequest]:
         rng = self._rng(user_id, "hr")
@@ -179,7 +226,7 @@ class DemoHrisClient:
         picked = rng.sample(catalog, 4)
         statuses = ["submitted", "in_progress", "in_progress", "resolved"]
         today = self._now()
-        return [
+        generated = [
             HrRequest(
                 id=f"HR-{2210 + i}",
                 category=category,
@@ -189,6 +236,7 @@ class DemoHrisClient:
             )
             for i, (category, title) in enumerate(picked)
         ]
+        return self._new_hr.get(user_id, [])[::-1] + generated
 
     async def tasks(self, user_id: uuid.UUID) -> list[Task]:
         rng = self._rng(user_id, "tasks")
@@ -201,7 +249,8 @@ class DemoHrisClient:
             ("Finish the 'Working at Keystone' course", "Training"),
             ("Enrol in the health insurance plan", "Onboarding"),
         ]
-        return [
+        done = self._done_tasks.get(user_id, set())
+        tasks = [
             Task(
                 id=f"T-{300 + i}",
                 title=title,
@@ -211,6 +260,7 @@ class DemoHrisClient:
             )
             for i, (title, category) in enumerate(rng.sample(catalog, 5))
         ]
+        return [replace(t, status="done") if t.id in done else t for t in tasks]
 
     async def appointments(self, user_id: uuid.UUID) -> list[Appointment]:
         rng = self._rng(user_id, "appointments")
@@ -249,3 +299,54 @@ class DemoHrisClient:
             )
             for i, (title, body) in enumerate(catalog)
         ]
+
+    # --- Writes ------------------------------------------------------------------------
+
+    async def submit_leave(
+        self, user_id: uuid.UUID, leave_type: str, start: date, end: date, days: float
+    ) -> LeaveRequest:
+        mine = self._new_leave.setdefault(user_id, [])
+        request = LeaveRequest(
+            id=f"LR-{1050 + len(mine)}",
+            leave_type=leave_type,
+            start=start,
+            end=end,
+            days=days,
+            status="pending",
+            submitted_on=self._now(),
+        )
+        mine.append(request)
+        return request
+
+    async def cancel_leave(self, user_id: uuid.UUID, request_id: str) -> LeaveRequest:
+        mine = self._new_leave.get(user_id, [])
+        for i, r in enumerate(mine):
+            if r.id == request_id:
+                mine[i] = replace(r, status="cancelled")
+                return mine[i]
+        for r in self._generated_leave(user_id):
+            if r.id == request_id:
+                self._cancelled_leave.setdefault(user_id, set()).add(request_id)
+                return replace(r, status="cancelled")
+        raise HrisError(f"leave request {request_id} not found")
+
+    async def create_hr_request(
+        self, user_id: uuid.UUID, category: str, title: str, details: str
+    ) -> HrRequest:
+        mine = self._new_hr.setdefault(user_id, [])
+        request = HrRequest(
+            id=f"HR-{2230 + len(mine)}",
+            category=category,
+            title=title,
+            status="submitted",
+            updated_on=self._now(),
+        )
+        mine.append(request)
+        return request
+
+    async def complete_task(self, user_id: uuid.UUID, task_id: str) -> Task:
+        for t in await self.tasks(user_id):
+            if t.id == task_id:
+                self._done_tasks.setdefault(user_id, set()).add(task_id)
+                return replace(t, status="done")
+        raise HrisError(f"task {task_id} not found")

@@ -8,7 +8,7 @@ from fastapi import FastAPI
 
 from app.ai.llm.factory import create_llm_provider
 from app.ai.tools.hr_tools import build_hr_registry
-from app.api import auth, chat, conversations, documents, health
+from app.api import actions, auth, chat, conversations, documents, health
 from app.core.auth import DevTokenVerifier, FirebaseTokenVerifier, TokenVerifier
 from app.core.config import Settings, get_settings
 from app.core.errors import register_error_handlers
@@ -20,10 +20,12 @@ from app.rag.factory import create_embedder
 from app.rag.retriever import Retriever
 from app.rag.sql_store import SqlKnowledgeStore
 from app.repositories.sql import (
+    SqlActionRepository,
     SqlConversationRepository,
     SqlToolAuditRepository,
     SqlUserRepository,
 )
+from app.services.actions import ActionService
 from app.services.chat_service import AgentTools, ChatService
 from app.services.titles import TitleGenerator
 
@@ -82,6 +84,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if settings.title_generation_enabled
         else None
     )
+    # One HR system and one tool registry, shared by the chat (proposals) and the actions
+    # API (confirmed changes), so both see the same data.
+    hris = DemoHrisClient()  # stands in for a real HR system (Workday, BambooHR, ...)
+    registry = build_hr_registry(settings.tool_timeout_s)
+    app.state.action_service = ActionService(
+        SqlActionRepository(app.state.db.session_factory), registry, hris
+    )
     app.state.chat_service = ChatService(
         app.state.llm,
         app.state.conversations,
@@ -89,21 +98,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         max_output_tokens=settings.chat_max_output_tokens,
         titles=app.state.titles,
         tools=AgentTools(
-            registry=build_hr_registry(settings.tool_timeout_s),
-            hris=DemoHrisClient(),  # stands in for a real HR system (Workday, BambooHR, ...)
+            registry=registry,
+            hris=hris,
             audit=SqlToolAuditRepository(app.state.db.session_factory),
             max_steps=settings.agent_max_steps,
             knowledge=app.state.retriever,
+            actions=app.state.action_service,
         ),
     )
 
     app.add_middleware(RequestContextMiddleware)
     register_error_handlers(app)
+    actions.register_action_errors(app)
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(chat.router)
     app.include_router(conversations.router)
     app.include_router(documents.router)
+    app.include_router(actions.router)
     return app
 
 

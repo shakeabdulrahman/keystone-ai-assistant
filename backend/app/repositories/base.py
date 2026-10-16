@@ -74,6 +74,30 @@ class ToolAuditEntry:
     latency_ms: int
 
 
+ActionStatus = Literal["pending", "executing", "executed", "cancelled", "expired", "failed"]
+
+
+@dataclass(frozen=True)
+class ActionRecord:
+    """A change the assistant proposed, waiting for (or past) the employee's decision."""
+
+    id: uuid.UUID
+    user_id: uuid.UUID
+    conversation_id: uuid.UUID
+    message_id: uuid.UUID  # the assistant message that proposed it
+    call_id: str
+    tool_name: str
+    arguments: dict[str, Any]  # frozen at proposal time: exactly what the card showed
+    card: dict[str, Any]  # title, fields, notes, confirm_label
+    status: ActionStatus
+    created_at: datetime
+    expires_at: datetime
+    decided_at: datetime | None = None
+    result: dict[str, Any] | None = None  # reference + message once executed
+    error_code: str | None = None
+    error_message: str | None = None  # user-safe text when it failed
+
+
 @dataclass(frozen=True)
 class Page[T]:
     items: list[T]
@@ -127,3 +151,37 @@ class ConversationRepository(Protocol):
 
 class ToolAuditRepository(Protocol):
     async def record(self, entries: list[ToolAuditEntry]) -> None: ...
+
+
+class ActionRepository(Protocol):
+    async def create(self, action: ActionRecord) -> None: ...
+
+    async def get_owned(self, user_id: uuid.UUID, action_id: uuid.UUID) -> ActionRecord | None:
+        """None if missing or someone else's (indistinguishable on purpose)."""
+        ...
+
+    async def transition(
+        self,
+        user_id: uuid.UUID,
+        action_id: uuid.UUID,
+        from_status: ActionStatus,
+        to_status: ActionStatus,
+        now: datetime,
+        *,
+        unexpired_only: bool = False,
+    ) -> ActionRecord | None:
+        """Atomic compare-and-set of the status. Returns the updated action, or None if it
+        wasn't in `from_status` (someone else got there first) or had expired."""
+        ...
+
+    async def finish(
+        self,
+        action_id: uuid.UUID,
+        status: ActionStatus,
+        *,
+        result: dict[str, Any] | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> ActionRecord: ...
+
+    async def get_many(self, action_ids: list[uuid.UUID]) -> dict[uuid.UUID, ActionRecord]: ...

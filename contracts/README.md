@@ -19,6 +19,9 @@ Local development (`AUTH_MODE=dev`, refused in production): tokens look like `de
 | GET | `/v1/conversations?limit=20&cursor=` | Newest first. `{items: [{id, title, created_at, updated_at, last_message_at}], next_cursor}` |
 | GET | `/v1/conversations/{id}` | One conversation (`404` if missing or not yours) |
 | GET | `/v1/conversations/{id}/messages?limit=50&cursor=` | `{items: [{id, role, content, status, created_at, parts}], next_cursor}`. Items are oldest first; `next_cursor` loads **older** messages. `parts` lists the answer's tool results (`type: "tool_result"`, `call_id`, `tool`, `status`, `ui`, `data`) and its sources (`type: "citations"`, `items` as in the `citations` event), so history shows the same cards and sources. Clients skip part types they don't know |
+| GET | `/v1/actions/{id}` | An action the assistant proposed (shape below). `404` if missing or not yours |
+| POST | `/v1/actions/{id}/confirm` | Runs it. **Idempotent**: confirming an executed action returns the same result. `200` with `status: executed` (and `result`) or `status: failed` (and a user-facing `error.message`; nothing changed). `409` with `code` `action_expired`, `action_cancelled`, `action_in_progress`, `action_done` or `action_failed` when it can't run |
+| POST | `/v1/actions/{id}/cancel` | `200` with `status: cancelled` (repeatable). `409` if already executed |
 | GET | `/v1/documents` | Policy documents: `{items: [{id, title, version, effective, owner, updated_at}]}` |
 | GET | `/v1/documents/{id}` | One document with `sections: [{index, heading, body}]` (`body` is Markdown). A citation's `section_index` is an index into `sections`. `404` if unknown |
 | PATCH | `/v1/conversations/{id}` | `{title}` (1–120 chars) |
@@ -57,12 +60,13 @@ Lines starting with `:` are keep-alive comments and carry no data.
 | `message.completed` | `message_id`, `finish_reason` (`stop`/`length`), `usage` {`input_tokens`, `output_tokens`} | Mark the message complete |
 | `tool.started` | `call_id`, `tool`, `label` (e.g. "Checking your leave balance") | Show a progress row with the label |
 | `tool.result` | `call_id`, `tool`, `status` (`ok`/`error`), `ui` (card type or null), `data` (object) | Replace the progress row with the card for `ui`; on error, a short "couldn't load" note |
+| `confirmation.required` | `action_id`, `tool`, `title`, `fields[]` {`label`, `value`}, `notes[]`, `confirm_label`, `expires_at` | Show a confirmation card with exactly these fields and two buttons: `confirm_label` (→ `POST /v1/actions/{action_id}/confirm`) and Cancel (→ `/cancel`). Nothing has changed yet |
 | `citations` | `items[]`: `ref` (the number in the text, `[1]`), `document_id`, `title`, `section_index`, `heading`, `snippet` (plain text) | Show source chips under the answer; open `GET /v1/documents/{document_id}` at `section_index` when tapped |
 | `error` | `code`, `message` (safe to show), `retryable` | Show the message; offer Retry if `retryable` |
 
-Order: `message.started`, then any mix of `text.delta` and `tool.started`/`tool.result` pairs (same `call_id`), then at most one `citations` (only sources the answer cited), then exactly one of `message.completed` or `error`. A model may call several tools, over several steps, before or between text.
+Order: `message.started`, then any mix of `text.delta` and `tool.started`/`tool.result` pairs (same `call_id`; a write tool's `tool.result` is followed by at most one `confirmation.required` per answer), then at most one `citations` (only sources the answer cited), then exactly one of `message.completed` or `error`. A model may call several tools, over several steps, before or between text.
 
-**Forward compatibility:** clients must ignore event types, fields and `ui` card types they don't recognise. Later phases add `confirmation.required`.
+**Forward compatibility:** clients must ignore event types, fields and `ui` card types they don't recognise.
 
 ### Tool cards (`ui` → `data`)
 
@@ -77,11 +81,28 @@ All dates are ISO 8601 (`2026-10-15`, or full timestamps for meetings and notifi
 | `tasks` | `filter`, `items[]`: `id`, `title`, `category`, `due`, `status` (`pending`/`done`), `overdue` |
 | `appointments` | `filter`, `items[]`: `id`, `title`, `with`, `start`, `end`, `location` |
 | `notifications` | `items[]`: `id`, `title`, `body`, `created_at`, `read` |
+| `null` for write tools | `action_id`, `status: "awaiting_confirmation"`, `summary`. The card comes in `confirmation.required` |
 | `policy_search` | `query`, `results[]`: `ref`, `document`, `section`, `text`; `note` when nothing matched. Meant for the model; apps may show nothing and rely on `citations` |
 
 Results larger than the size limit carry `"truncated": true`.
 
 Error codes: `ai_unavailable`, `ai_timeout`, `ai_rate_limited` (retryable), `ai_misconfigured` (not retryable), `internal_error` (retryable).
+
+## Actions (Phase 5)
+
+Write tools (`submitLeaveRequest`, `cancelLeaveRequest`, `createHrRequest`, `completeTask`) never change anything when the model calls them. They store a proposal and stream `confirmation.required`. The change runs only on `POST /v1/actions/{id}/confirm`, with the arguments frozen at proposal time.
+
+Action shape (`GET`, `confirm`, `cancel`):
+
+```json
+{"id": "…", "tool": "submitLeaveRequest", "status": "executed",
+ "title": "Request annual leave", "fields": [{"label": "Dates", "value": "…"}], "notes": [],
+ "confirm_label": "Submit request", "expires_at": "2026-10-15T09:15:00Z",
+ "result": {"reference": "LR-1050", "message": "Leave request LR-1050 submitted. …"},
+ "error": null}
+```
+
+`status`: `pending` → `executing` → `executed` | `failed`; or `cancelled`; or `expired` (15 minutes after the proposal). In `GET /messages`, a stored answer's `parts` contain `{"type": "confirmation", …the event fields…, "status", "result", "error"}`, which reflect the **current** state.
 
 ## Fixtures
 
@@ -92,3 +113,4 @@ Error codes: `ai_unavailable`, `ai_timeout`, `ai_rate_limited` (retryable), `ai_
 | `fixtures/chat_stream_forward_compat.sse` | An unknown event type and extra fields that clients must ignore |
 | `fixtures/chat_stream_tool.sse` | A tool call (leave balance) followed by the answer |
 | `fixtures/chat_stream_rag.sse` | A policy search, a cited answer, and the `citations` event |
+| `fixtures/chat_stream_action.sse` | A leave request prepared for confirmation (`confirmation.required`) |

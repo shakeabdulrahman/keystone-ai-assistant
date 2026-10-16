@@ -7,8 +7,10 @@ import com.keystone.shared.data.local.MessageDao
 import com.keystone.shared.data.local.buildKeystoneDatabase
 import com.keystone.shared.data.local.keystoneDatabaseBuilder
 import com.keystone.shared.data.remote.KeystoneApi
+import com.keystone.shared.data.repository.ActionRepositoryImpl
 import com.keystone.shared.data.repository.ConversationRepositoryImpl
 import com.keystone.shared.data.repository.DocumentRepositoryImpl
+import com.keystone.shared.domain.repository.ActionRepository
 import com.keystone.shared.domain.repository.ConversationRepository
 import com.keystone.shared.domain.repository.DocumentRepository
 import dagger.Module
@@ -45,4 +47,8 @@ object DataModule {
     @Provides
     @Singleton
     fun provideDocumentRepository(api: KeystoneApi): DocumentRepository = DocumentRepositoryImpl(api)
+
+    @Provides
+    @Singleton
+    fun provideActionRepository(api: KeystoneApi): ActionRepository = ActionRepositoryImpl(api)
 }

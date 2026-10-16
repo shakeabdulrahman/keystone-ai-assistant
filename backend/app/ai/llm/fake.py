@@ -2,8 +2,10 @@
 
 import asyncio
 import json
+import re
 import uuid
 from collections.abc import AsyncGenerator, Sequence
+from datetime import date, timedelta
 
 from app.ai.llm.base import LLMError
 from app.ai.llm.types import (
@@ -128,12 +130,14 @@ class FakeLLMProvider:
             index = min(len(self.requests) - 1, len(self.turns) - 1)
             return self.turns[index]
         if self.demo and request.tools:
-            return _demo_turn(request.messages, {t.name for t in request.tools})
+            return _demo_turn(request.messages, {t.name for t in request.tools}, request.system)
         return self.reply
 
 
-def _demo_turn(messages: list[ChatMessage], available: set[str]) -> FakeTurn:
+def _demo_turn(messages: list[ChatMessage], available: set[str], system: str = "") -> FakeTurn:
     last = messages[-1] if messages else None
+    if last is not None and last.role == "tool" and last.tool_name in _ACTION_TOOLS:
+        return _demo_action_reply(last.content)
     if last is not None and last.role == "tool" and last.tool_name == "searchPolicies":
         return _demo_policy_answer(last.content)
     if last is not None and last.role == "tool":
@@ -146,6 +150,9 @@ def _demo_turn(messages: list[ChatMessage], available: set[str]) -> FakeTurn:
         return f"Here's what I found in your HR records.{detail}"
     if last is not None and last.role == "user":
         text = last.content.lower()
+        action = _demo_action(text, last.content, available, system)
+        if action is not None:
+            return action
         if "searchPolicies" in available and any(w in text for w in _POLICY_WORDS):
             query = last.content.strip()[:300]
             return [ToolCall(f"call_{uuid.uuid4().hex[:8]}", "searchPolicies", {"query": query})]
@@ -153,6 +160,55 @@ def _demo_turn(messages: list[ChatMessage], available: set[str]) -> FakeTurn:
             if tool in available and any(k in text for k in keywords):
                 return [ToolCall(f"call_{uuid.uuid4().hex[:8]}", tool, {})]
     return DEFAULT_REPLY
+
+
+_ACTION_TOOLS = {"submitLeaveRequest", "cancelLeaveRequest", "createHrRequest", "completeTask"}
+_BOOK_WORDS = (
+    "book ",
+    "apply for",
+    "request leave",
+    "take leave",
+    "take a day off",
+    "submit leave",
+)
+_RAISE_WORDS = ("raise", "open a ticket", "create a ticket", "log a ticket", "report a")
+_TODAY = re.compile(r"Today's date is (\d{4}-\d{2}-\d{2})")
+
+
+def _demo_action(text: str, original: str, available: set[str], system: str) -> FakeTurn | None:
+    """Demo mode: 'book leave' prepares annual leave for next Monday-Tuesday, 'raise a
+    ticket' prepares an IT request. Enough to try the confirmation flow without a model."""
+    call_id = f"call_{uuid.uuid4().hex[:8]}"
+    if "submitLeaveRequest" in available and any(w in text for w in _BOOK_WORDS):
+        match = _TODAY.search(system)
+        today = date.fromisoformat(match.group(1)) if match else date.today()
+        monday = today + timedelta(days=7 - today.weekday() + 7)  # Monday after next
+        kind = "sick" if "sick" in text else "casual" if "casual" in text else "annual"
+        args = {
+            "leave_type": kind,
+            "start_date": (today if kind == "sick" else monday).isoformat(),
+            "end_date": (today if kind == "sick" else monday + timedelta(days=1)).isoformat(),
+        }
+        return [ToolCall(call_id, "submitLeaveRequest", args)]
+    if "createHrRequest" in available and any(w in text for w in _RAISE_WORDS):
+        subject = original.strip().rstrip(".?!")[:120]
+        args = {"category": "IT", "title": subject if len(subject) >= 5 else "Help needed"}
+        return [ToolCall(call_id, "createHrRequest", args)]
+    return None
+
+
+def _demo_action_reply(tool_output: str) -> str:
+    try:
+        data = json.loads(tool_output)
+    except ValueError:
+        data = {}
+    if isinstance(data, dict) and data.get("status") == "awaiting_confirmation":
+        return (
+            f"I've prepared this for you: {data.get('summary', 'your request')}. "
+            "Please check the details on the card and tap the button to confirm."
+        )
+    detail = data.get("detail") if isinstance(data, dict) else None
+    return f"I couldn't prepare that. {detail or 'Please try again.'}"
 
 
 def _demo_policy_answer(tool_output: str) -> str:

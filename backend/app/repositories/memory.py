@@ -7,8 +7,11 @@ integration tests run the same scenarios against real Postgres to keep them hone
 import uuid
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from app.repositories.base import (
+    ActionRecord,
+    ActionStatus,
     ConversationRecord,
     DuplicateMessageError,
     MessageRecord,
@@ -151,3 +154,57 @@ class InMemoryToolAuditRepository:
 
     async def record(self, entries: list[ToolAuditEntry]) -> None:
         self.entries.extend(entries)
+
+
+class InMemoryActionRepository:
+    def __init__(self) -> None:
+        self.actions: dict[uuid.UUID, ActionRecord] = {}
+
+    async def create(self, action: ActionRecord) -> None:
+        self.actions[action.id] = action
+
+    async def get_owned(self, user_id: uuid.UUID, action_id: uuid.UUID) -> ActionRecord | None:
+        action = self.actions.get(action_id)
+        return action if action is not None and action.user_id == user_id else None
+
+    async def transition(
+        self,
+        user_id: uuid.UUID,
+        action_id: uuid.UUID,
+        from_status: ActionStatus,
+        to_status: ActionStatus,
+        now: datetime,
+        *,
+        unexpired_only: bool = False,
+    ) -> ActionRecord | None:
+        # No await between the check and the write, so this is atomic on the event loop.
+        action = await self.get_owned(user_id, action_id)
+        if action is None or action.status != from_status:
+            return None
+        if unexpired_only and action.expires_at <= now:
+            return None
+        updated = replace(action, status=to_status, decided_at=now)
+        self.actions[action_id] = updated
+        return updated
+
+    async def finish(
+        self,
+        action_id: uuid.UUID,
+        status: ActionStatus,
+        *,
+        result: dict[str, Any] | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> ActionRecord:
+        updated = replace(
+            self.actions[action_id],
+            status=status,
+            result=result,
+            error_code=error_code,
+            error_message=error_message,
+        )
+        self.actions[action_id] = updated
+        return updated
+
+    async def get_many(self, action_ids: list[uuid.UUID]) -> dict[uuid.UUID, ActionRecord]:
+        return {i: self.actions[i] for i in action_ids if i in self.actions}

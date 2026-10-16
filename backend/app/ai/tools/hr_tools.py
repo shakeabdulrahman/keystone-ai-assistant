@@ -8,6 +8,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BeforeValidator, Field
 
+from app.ai.tools.action_tools import ACTION_TOOLS
 from app.ai.tools.policy_tools import POLICY_TOOLS
 from app.ai.tools.registry import NoArgs, Tool, ToolArgs, ToolContext, ToolRegistry
 
@@ -239,6 +240,10 @@ HR_TOOLS: list[Tool] = [
 ]
 
 
-def build_hr_registry(timeout_s: float = 5.0, *, policies: bool = True) -> ToolRegistry:
-    """Every tool the assistant may use: the employee's HR records, plus policy search."""
-    return ToolRegistry(HR_TOOLS + (POLICY_TOOLS if policies else []), timeout_s=timeout_s)
+def build_hr_registry(
+    timeout_s: float = 5.0, *, policies: bool = True, actions: bool = True
+) -> ToolRegistry:
+    """Every tool the assistant may use: the employee's HR records, policy search, and
+    actions (which always need the employee's confirmation)."""
+    tools = HR_TOOLS + (POLICY_TOOLS if policies else []) + (ACTION_TOOLS if actions else [])
+    return ToolRegistry(tools, timeout_s=timeout_s)

@@ -2,6 +2,7 @@ package com.keystone.android.ui.chat
 
 import com.keystone.shared.core.AppError
 import com.keystone.shared.domain.model.Citation
+import com.keystone.shared.domain.model.PendingAction
 import com.keystone.shared.domain.model.ToolCard
 
 data class ChatUiState(
@@ -24,6 +25,8 @@ data class ChatMessageUi(
     val tools: List<ToolActivityUi> = emptyList(),
     /** Policy sources the answer cited, shown as chips under it. */
     val citations: List<Citation> = emptyList(),
+    /** Changes the answer prepared, shown as confirmation cards. */
+    val actions: List<ActionUi> = emptyList(),
 ) {
     enum class Role { User, Assistant }
 
@@ -47,5 +50,14 @@ data class ToolActivityUi(
 ) {
     enum class State { Running, Done, Failed }
 }
+
+/** A confirmation card. The server's [action] status decides which buttons are shown. */
+data class ActionUi(
+    val action: PendingAction,
+    /** A confirm/cancel request is in flight: buttons disabled, spinner shown. */
+    val busy: Boolean = false,
+    /** The last decision didn't reach the server; it's safe to try again. */
+    val error: AppError? = null,
+)
 
 const val MAX_MESSAGE_CHARS = 4000 // matches the backend limit

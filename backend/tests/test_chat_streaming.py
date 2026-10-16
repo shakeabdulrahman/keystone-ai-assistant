@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from app.ai.events import (
     SSE_KEEPALIVE,
     CitationsOut,
+    ConfirmationRequired,
     MessageCompleted,
     MessageStarted,
     StreamError,
@@ -39,6 +40,7 @@ MODELS: dict[str, type[BaseModel]] = {
     "tool.started": ToolStarted,
     "tool.result": ToolResultOut,
     "citations": CitationsOut,
+    "confirmation.required": ConfirmationRequired,
 }
 USER = UserRecord(uuid.uuid4(), "uid-1", None, None, "member", datetime.now(UTC))
 
@@ -173,6 +175,7 @@ async def test_disconnect_closes_upstream_model_connection() -> None:
         "chat_stream_forward_compat.sse",
         "chat_stream_tool.sse",
         "chat_stream_rag.sse",
+        "chat_stream_action.sse",
     ],
 )
 def test_contract_fixtures_match_server_models(name: str) -> None:

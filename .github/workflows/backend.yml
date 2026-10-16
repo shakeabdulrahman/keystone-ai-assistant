@@ -59,7 +59,9 @@ jobs:
         run: uv run mypy app
 
       - name: Migrate
-        run: uv run alembic upgrade head
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check   # fails if the models and the migrations disagree
 
       - name: Test
         run: uv run pytest -v

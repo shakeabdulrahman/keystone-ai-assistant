@@ -320,6 +320,7 @@ private fun leaveStatusText(status: String) = when (status) {
     "approved" -> stringResource(R.string.tool_status_approved)
     "rejected" -> stringResource(R.string.tool_status_rejected)
     "pending" -> stringResource(R.string.tool_status_pending)
+    "cancelled" -> stringResource(R.string.tool_status_cancelled)
     else -> status
 }
 

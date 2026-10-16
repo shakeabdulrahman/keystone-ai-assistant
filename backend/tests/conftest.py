@@ -1,8 +1,8 @@
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from functools import cache
 from pathlib import Path
 
@@ -22,10 +22,12 @@ from app.rag.ingest import ingest
 from app.rag.retriever import Retriever
 from app.rag.store import InMemoryKnowledgeStore
 from app.repositories.memory import (
+    InMemoryActionRepository,
     InMemoryConversationRepository,
     InMemoryToolAuditRepository,
     InMemoryUserRepository,
 )
+from app.services.actions import ActionService
 from app.services.chat_service import AgentTools, ChatService
 from app.services.titles import TitleGenerator
 
@@ -52,6 +54,8 @@ class Harness:
     titles: TitleGenerator
     audit: InMemoryToolAuditRepository
     knowledge: InMemoryKnowledgeStore
+    actions: InMemoryActionRepository
+    hris: DemoHrisClient
 
 
 KNOWLEDGE_DIR = Path(__file__).parent.parent / "knowledge"
@@ -70,6 +74,7 @@ def knowledge_store() -> InMemoryKnowledgeStore:
 
 
 TODAY = date(2026, 10, 15)  # fixed so demo HR data is identical on every run
+NOW = datetime(2026, 10, 15, 9, 0, tzinfo=UTC)
 
 
 def build_test_app(
@@ -78,6 +83,7 @@ def build_test_app(
     titles: bool = False,
     max_steps: int = 4,
     retriever: Retriever | None = None,
+    clock: Callable[[], datetime] = lambda: NOW,
 ) -> Harness:
     """The real app, wired to in-memory repositories, dev auth, demo HR data and a fake model."""
     provider = provider or FakeLLMProvider("Hello from Keystone", delay_s=0)
@@ -91,6 +97,9 @@ def build_test_app(
     app.state.titles = title_generator if titles else None
     knowledge = knowledge_store()
     app.state.knowledge_store = knowledge
+    hris, registry = DemoHrisClient(today=TODAY), build_hr_registry()
+    actions = InMemoryActionRepository()
+    app.state.action_service = ActionService(actions, registry, hris, clock=clock)
     app.state.chat_service = ChatService(
         provider,
         conversations,
@@ -98,14 +107,18 @@ def build_test_app(
         max_output_tokens=256,
         titles=title_generator if titles else None,
         tools=AgentTools(
-            registry=build_hr_registry(),
-            hris=DemoHrisClient(today=TODAY),
+            registry=registry,
+            hris=hris,
             audit=audit,
             max_steps=max_steps,
             knowledge=retriever or Retriever(knowledge, HashingEmbedder()),
+            actions=app.state.action_service,
         ),
+        clock=clock,
     )
-    return Harness(app, provider, users, conversations, title_generator, audit, knowledge)
+    return Harness(
+        app, provider, users, conversations, title_generator, audit, knowledge, actions, hris
+    )
 
 
 @pytest.fixture

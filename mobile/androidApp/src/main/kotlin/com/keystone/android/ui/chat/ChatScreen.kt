@@ -58,6 +58,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.keystone.android.R
 import com.keystone.android.ui.chat.ChatMessageUi.Role
 import com.keystone.android.ui.chat.ChatMessageUi.Status
+import com.keystone.android.ui.chat.cards.ConfirmationCard
 import com.keystone.android.ui.chat.cards.ToolActivity
 import com.keystone.designsystem.theme.KeystoneTheme
 import com.keystone.shared.core.AppError
@@ -81,6 +82,8 @@ fun ChatRoute(
         onRetry = viewModel::onRetry,
         onSuggestion = viewModel::onSuggestion,
         onOpenSource = onOpenSource,
+        onConfirmAction = viewModel::onConfirmAction,
+        onCancelAction = viewModel::onCancelAction,
     )
 }
 
@@ -96,6 +99,8 @@ fun ChatScreen(
     onSuggestion: (String) -> Unit,
     modifier: Modifier = Modifier,
     onOpenSource: (Citation) -> Unit = {},
+    onConfirmAction: (String) -> Unit = {},
+    onCancelAction: (String) -> Unit = {},
 ) {
     Scaffold(
         modifier = modifier,
@@ -127,7 +132,14 @@ fun ChatScreen(
         } else if (state.messages.isEmpty()) {
             EmptyChat(onSuggestion = onSuggestion, modifier = Modifier.padding(innerPadding))
         } else {
-            MessageList(state.messages, onRetry, onOpenSource, Modifier.padding(innerPadding))
+            MessageList(
+                state.messages,
+                onRetry,
+                onOpenSource,
+                onConfirmAction,
+                onCancelAction,
+                Modifier.padding(innerPadding),
+            )
         }
     }
 }
@@ -137,12 +149,14 @@ private fun MessageList(
     messages: List<ChatMessageUi>,
     onRetry: (String) -> Unit,
     onOpenSource: (Citation) -> Unit,
+    onConfirmAction: (String) -> Unit,
+    onCancelAction: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
     // Follow the conversation: scroll when a message is added or the last one grows.
     val last = messages.lastOrNull()
-    LaunchedEffect(messages.size, last?.text?.length, last?.status, last?.tools, last?.citations) {
+    LaunchedEffect(messages.size, last?.text?.length, last?.status, last?.tools, last?.citations, last?.actions) {
         listState.animateScrollToItem(messages.lastIndex)
     }
     LazyColumn(
@@ -152,13 +166,25 @@ private fun MessageList(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         items(messages, key = { it.id }) { message ->
-            MessageBubble(message, onRetry = { onRetry(message.id) }, onOpenSource = onOpenSource)
+            MessageBubble(
+                message,
+                onRetry = { onRetry(message.id) },
+                onOpenSource = onOpenSource,
+                onConfirmAction = onConfirmAction,
+                onCancelAction = onCancelAction,
+            )
         }
     }
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessageUi, onRetry: () -> Unit, onOpenSource: (Citation) -> Unit) {
+private fun MessageBubble(
+    message: ChatMessageUi,
+    onRetry: () -> Unit,
+    onOpenSource: (Citation) -> Unit,
+    onConfirmAction: (String) -> Unit = {},
+    onCancelAction: (String) -> Unit = {},
+) {
     val isUser = message.role == Role.User
     val speaker = stringResource(if (isUser) R.string.chat_you else R.string.app_name)
     Row(
@@ -202,6 +228,13 @@ private fun MessageBubble(message: ChatMessageUi, onRetry: () -> Unit, onOpenSou
                         }
                     }
                 }
+            }
+            message.actions.forEach { item ->
+                ConfirmationCard(
+                    item,
+                    onConfirm = { onConfirmAction(item.action.id) },
+                    onCancel = { onCancelAction(item.action.id) },
+                )
             }
             if (message.citations.isNotEmpty()) Sources(message.citations, onOpenSource)
             when (message.status) {
@@ -312,6 +345,7 @@ private fun EmptyChat(onSuggestion: (String) -> Unit, modifier: Modifier = Modif
         stringResource(R.string.chat_suggestion_onboarding),
         stringResource(R.string.chat_suggestion_request),
         stringResource(R.string.chat_suggestion_policy),
+        stringResource(R.string.chat_suggestion_action),
     )
     Column(
         modifier = modifier

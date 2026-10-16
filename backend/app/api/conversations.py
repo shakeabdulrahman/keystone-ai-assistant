@@ -7,8 +7,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field, field_validator
 
+from app.api.actions import enrich_confirmation_parts, get_action_repository
 from app.api.deps import CurrentUser, get_conversations
-from app.repositories.base import ConversationRecord, ConversationRepository, MessageRecord
+from app.repositories.base import (
+    ActionRepository,
+    ConversationRecord,
+    ConversationRepository,
+    MessageRecord,
+)
 
 router = APIRouter(prefix="/v1/conversations", tags=["conversations"])
 
@@ -110,12 +116,34 @@ async def list_messages(
     conversation_id: UUID,
     user: CurrentUser,
     conversations: Conversations,
+    actions: Annotated[ActionRepository, Depends(get_action_repository)],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     cursor: Annotated[str | None, Query(max_length=200)] = None,
 ) -> MessagePage:
     await _owned(conversations, user.id, conversation_id)
     page = await conversations.list_messages(conversation_id, limit, cursor)
-    return MessagePage(items=[MessageOut.of(m) for m in page.items], next_cursor=page.next_cursor)
+    items = [MessageOut.of(m) for m in page.items]
+    # Confirmation cards: show what happened since (confirmed, cancelled, expired...).
+    action_ids = [
+        UUID(str(p["action_id"]))
+        for m in items
+        for p in m.parts
+        if p.get("type") == "confirmation" and _is_uuid(p.get("action_id"))
+    ]
+    if action_ids:
+        found = await actions.get_many(action_ids)
+        mine = {k: v for k, v in found.items() if v.user_id == user.id}
+        for m in items:
+            m.parts = enrich_confirmation_parts(m.parts, mine)
+    return MessagePage(items=items, next_cursor=page.next_cursor)
+
+
+def _is_uuid(value: object) -> bool:
+    try:
+        UUID(str(value))
+    except ValueError:
+        return False
+    return True
 
 
 @router.patch("/{conversation_id}", response_model=ConversationOut)

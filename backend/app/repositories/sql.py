@@ -6,14 +6,17 @@ across a streaming response, so a slow model can't pin a database connection.
 
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models import Conversation, Message, ToolExecution, User
+from app.db.models import Conversation, Message, PendingAction, ToolExecution, User
 from app.repositories.base import (
+    ActionRecord,
+    ActionStatus,
     ConversationRecord,
     DuplicateMessageError,
     MessageRecord,
@@ -262,3 +265,119 @@ class SqlToolAuditRepository:
                 for e in entries
             )
             await session.commit()
+
+
+def _action(row: PendingAction) -> ActionRecord:
+    return ActionRecord(
+        id=row.id,
+        user_id=row.user_id,
+        conversation_id=row.conversation_id,
+        message_id=row.message_id,
+        call_id=row.call_id,
+        tool_name=row.tool_name,
+        arguments=row.arguments,
+        card=row.card,
+        status=row.status,  # type: ignore[arg-type]  # constrained by the code that writes it
+        created_at=row.created_at,
+        expires_at=row.expires_at,
+        decided_at=row.decided_at,
+        result=row.result,
+        error_code=row.error_code,
+        error_message=row.error_message,
+    )
+
+
+class SqlActionRepository:
+    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+        self._sessions = sessions
+
+    async def create(self, action: ActionRecord) -> None:
+        async with self._sessions() as session:
+            session.add(
+                PendingAction(
+                    id=action.id,
+                    user_id=action.user_id,
+                    conversation_id=action.conversation_id,
+                    message_id=action.message_id,
+                    call_id=action.call_id,
+                    tool_name=action.tool_name,
+                    arguments=action.arguments,
+                    card=action.card,
+                    status=action.status,
+                    created_at=action.created_at,
+                    expires_at=action.expires_at,
+                )
+            )
+            await session.commit()
+
+    async def get_owned(self, user_id: uuid.UUID, action_id: uuid.UUID) -> ActionRecord | None:
+        async with self._sessions() as session:
+            row = await session.scalar(
+                select(PendingAction).where(
+                    PendingAction.id == action_id, PendingAction.user_id == user_id
+                )
+            )
+            return _action(row) if row else None
+
+    async def transition(
+        self,
+        user_id: uuid.UUID,
+        action_id: uuid.UUID,
+        from_status: ActionStatus,
+        to_status: ActionStatus,
+        now: datetime,
+        *,
+        unexpired_only: bool = False,
+    ) -> ActionRecord | None:
+        # One UPDATE ... WHERE status = :from: the database decides who wins a race, so two
+        # simultaneous confirms can never both execute.
+        conditions = [
+            PendingAction.id == action_id,
+            PendingAction.user_id == user_id,
+            PendingAction.status == from_status,
+        ]
+        if unexpired_only:
+            conditions.append(PendingAction.expires_at > now)
+        async with self._sessions() as session:
+            row = await session.scalar(
+                update(PendingAction)
+                .where(*conditions)
+                .values(status=to_status, decided_at=now)
+                .returning(PendingAction)
+            )
+            await session.commit()
+            return _action(row) if row else None
+
+    async def finish(
+        self,
+        action_id: uuid.UUID,
+        status: ActionStatus,
+        *,
+        result: dict[str, Any] | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+    ) -> ActionRecord:
+        async with self._sessions() as session:
+            row = await session.scalar(
+                update(PendingAction)
+                .where(PendingAction.id == action_id)
+                .values(
+                    status=status,
+                    result=result,
+                    error_code=error_code,
+                    error_message=error_message,
+                )
+                .returning(PendingAction)
+            )
+            await session.commit()
+            assert row is not None
+            return _action(row)
+
+    async def get_many(self, action_ids: list[uuid.UUID]) -> dict[uuid.UUID, ActionRecord]:
+        if not action_ids:
+            return {}
+        async with self._sessions() as session:
+            rows = await session.scalars(
+                select(PendingAction).where(PendingAction.id.in_(action_ids))
+            )
+            return {r.id: _action(r) for r in rows}
