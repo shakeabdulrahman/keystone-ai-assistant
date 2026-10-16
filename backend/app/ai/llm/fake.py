@@ -19,7 +19,40 @@ from app.ai.llm.types import (
 
 DEFAULT_REPLY = (
     "Hi! I'm Keystone, your HR assistant. Ask me about your leave balance, leave requests, "
-    "HR requests, onboarding tasks, meetings or notifications."
+    "HR requests, onboarding tasks, meetings, notifications or company policies."
+)
+
+# Demo mode: questions with these words search the policy documents (checked first).
+_POLICY_WORDS = (
+    "policy",
+    "policies",
+    "how do i",
+    "allowed",
+    "rule",
+    "parental",
+    "maternity",
+    "paternity",
+    "adoption",
+    "remote",
+    "work from home",
+    "hybrid",
+    "expense",
+    "reimburse",
+    "receipt",
+    "carry over",
+    "public holiday",
+    "benefit",
+    "insurance",
+    "pension",
+    "gym",
+    "wellbeing",
+    "gift",
+    "probation",
+    "conduct",
+    "harassment",
+    "allowance",
+    "sick leave",
+    "medical certificate",
 )
 
 # A scripted turn is either text to stream, or tool calls to request.
@@ -101,6 +134,8 @@ class FakeLLMProvider:
 
 def _demo_turn(messages: list[ChatMessage], available: set[str]) -> FakeTurn:
     last = messages[-1] if messages else None
+    if last is not None and last.role == "tool" and last.tool_name == "searchPolicies":
+        return _demo_policy_answer(last.content)
     if last is not None and last.role == "tool":
         try:
             data = json.loads(last.content)
@@ -111,10 +146,28 @@ def _demo_turn(messages: list[ChatMessage], available: set[str]) -> FakeTurn:
         return f"Here's what I found in your HR records.{detail}"
     if last is not None and last.role == "user":
         text = last.content.lower()
+        if "searchPolicies" in available and any(w in text for w in _POLICY_WORDS):
+            query = last.content.strip()[:300]
+            return [ToolCall(f"call_{uuid.uuid4().hex[:8]}", "searchPolicies", {"query": query})]
         for keywords, tool in _DEMO_ROUTES:
             if tool in available and any(k in text for k in keywords):
                 return [ToolCall(f"call_{uuid.uuid4().hex[:8]}", tool, {})]
     return DEFAULT_REPLY
+
+
+def _demo_policy_answer(tool_output: str) -> str:
+    """Quotes the first sentence of the best passage, with a citation, like a real model."""
+    try:
+        data = json.loads(tool_output)
+        best = data["results"][0]
+    except (ValueError, KeyError, IndexError, TypeError):
+        return (
+            "I couldn't find that in the company policies. You can raise an HR request "
+            "and the People Team will help."
+        )
+    lines = [ln.strip("-* ").strip() for ln in str(best["text"]).splitlines()]
+    sentence = next((ln for ln in lines if ln), "").split(". ")[0].rstrip(".").replace("**", "")
+    return f"According to the {best['document']} ({best['section']}): {sentence} [{best['ref']}]."
 
 
 def _chunk(text: str) -> Sequence[str]:

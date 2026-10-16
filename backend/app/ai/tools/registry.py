@@ -15,7 +15,7 @@ import json
 import logging
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Literal
 
@@ -23,6 +23,8 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from app.ai.llm.types import ToolCall, ToolSpec
 from app.integrations.hris import HrisClient
+from app.rag.citations import SourceBook
+from app.rag.retriever import Retriever
 from app.repositories.base import UserRecord
 
 logger = logging.getLogger("keystone.tools")
@@ -45,6 +47,9 @@ class ToolContext:
     user: UserRecord
     hris: HrisClient
     today: date
+    knowledge: Retriever | None = None
+    # Shared by every tool call in one answer, so source numbers stay unique.
+    sources: SourceBook = field(default_factory=SourceBook)
 
 
 ToolHandler = Callable[[Any, ToolContext], Awaitable[dict[str, Any]]]

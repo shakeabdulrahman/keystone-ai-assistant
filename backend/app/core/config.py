@@ -50,6 +50,16 @@ class Settings(BaseSettings):
     agent_max_steps: int = 4  # model calls per user message (each may request tools)
     tool_timeout_s: float = 5.0
 
+    # --- Knowledge base (RAG) ---------------------------------------------------------
+    # Embeddings: "ollama" (nomic-embed-text) or "hashing" (offline, for tests and demos).
+    # Unset: follow the chat provider, so LLM_PROVIDER=ollama uses Ollama for both.
+    embedding_provider: Literal["ollama", "hashing"] | None = None
+    ollama_embedding_model: str = "nomic-embed-text"
+    knowledge_dir: str = "knowledge"
+    rag_top_k: int = 4  # passages given to the model per search
+    # Override the embedder's relevance floor (cosine similarity). Tune with app.rag.eval.
+    rag_min_similarity: float | None = None
+
     @model_validator(mode="after")
     def _check_auth(self) -> "Settings":
         if self.is_production and self.auth_mode == "dev":
@@ -57,6 +67,12 @@ class Settings(BaseSettings):
         if self.auth_mode == "firebase" and not self.firebase_project_id:
             raise ValueError("AUTH_MODE=firebase requires FIREBASE_PROJECT_ID")
         return self
+
+    @property
+    def resolved_embedding_provider(self) -> Literal["ollama", "hashing"]:
+        if self.embedding_provider is not None:
+            return self.embedding_provider
+        return "ollama" if self.llm_provider == "ollama" else "hashing"
 
     @property
     def is_production(self) -> bool:

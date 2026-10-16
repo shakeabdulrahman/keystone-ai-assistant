@@ -18,6 +18,11 @@ from app.ai.tools.hr_tools import build_hr_registry
 from app.core.config import Settings
 from app.db.session import Database
 from app.integrations.hris import DemoHrisClient
+from app.rag.embeddings import HashingEmbedder
+from app.rag.eval import evaluate, load_cases
+from app.rag.ingest import ingest
+from app.rag.retriever import Retriever
+from app.rag.sql_store import SqlKnowledgeStore
 from app.repositories.base import DuplicateMessageError, NewMessage
 from app.repositories.sql import (
     SqlConversationRepository,
@@ -25,7 +30,7 @@ from app.repositories.sql import (
     SqlUserRepository,
 )
 from app.services.chat_service import AgentTools, ChatService
-from tests.conftest import as_user, build_test_app
+from tests.conftest import KNOWLEDGE_DIR, as_user, build_test_app
 from tests.sse import parse_sse
 
 pytestmark = [
@@ -40,7 +45,9 @@ ALICE, BOB = as_user("alice"), as_user("bob")
 async def db() -> AsyncIterator[Database]:
     database = Database(Settings())
     async with database.engine.begin() as conn:
-        await conn.execute(text("TRUNCATE users, conversations, messages, tool_executions CASCADE"))
+        await conn.execute(
+            text("TRUNCATE users, conversations, messages, tool_executions, documents CASCADE")
+        )
     yield database
     await database.dispose()
 
@@ -158,3 +165,34 @@ async def test_tool_answer_parts_and_audit_are_persisted(db: Database) -> None:
             await conn.execute(text("SELECT tool_name, status, latency_ms FROM tool_executions"))
         ).one()
     assert (row.tool_name, row.status) == ("getLeaveBalance", "ok")
+
+
+async def test_knowledge_base_on_postgres(db: Database, tmp_path: object) -> None:
+    """pgvector cosine search, full-text search and idempotent ingestion on the real database."""
+    store, embedder = SqlKnowledgeStore(db.session_factory), HashingEmbedder()
+    first = await ingest(KNOWLEDGE_DIR, store, embedder)
+    assert len(first.added) >= 7
+    assert (await ingest(KNOWLEDGE_DIR, store, embedder)).chunks == 0
+
+    retriever = Retriever(store, embedder)
+    hits = await retriever.search("How many days can I carry over to next year?")
+    assert (hits[0].chunk.document_id, hits[0].chunk.heading) == (
+        "leave-policy",
+        "Carry-over and expiry",
+    )
+    text_hits = await store.text_search("VPN", 5)
+    assert text_hits and all(h.chunk.document_id == "remote-work" for h in text_hits)
+    assert await store.text_search("the and of", 5) == []  # stopwords only: no query at all
+    # Vectors from another model are never compared with these.
+    assert await store.vector_search(await embedder.embed_query("leave"), "other-model", 5) == []
+
+    # Same quality as the in-memory store: the SQL ranking agrees.
+    result = await evaluate(retriever, load_cases(KNOWLEDGE_DIR / "eval" / "retrieval.jsonl"))
+    assert result.document_hit_rate >= 0.9
+
+    doc = await store.get_document("leave-policy")
+    assert doc is not None and doc.embedding_model == "hashing-v1"
+    await store.delete_documents(["leave-policy"])
+    assert await store.get_document("leave-policy") is None
+    remaining = await store.text_search("carry over annual leave", 10)
+    assert all(h.chunk.document_id != "leave-policy" for h in remaining)  # chunks cascade

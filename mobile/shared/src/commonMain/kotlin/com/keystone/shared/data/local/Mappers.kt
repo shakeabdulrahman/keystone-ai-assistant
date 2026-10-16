@@ -2,16 +2,22 @@ package com.keystone.shared.data.local
 
 import com.keystone.shared.data.remote.KeystoneJson
 import com.keystone.shared.data.remote.ToolCardParser
+import com.keystone.shared.data.remote.dto.CitationsDto
 import com.keystone.shared.data.remote.dto.ConversationDto
 import com.keystone.shared.data.remote.dto.MessageDto
 import com.keystone.shared.data.remote.dto.ToolResultPartDto
+import com.keystone.shared.data.remote.dto.toDomain
+import com.keystone.shared.domain.model.Citation
 import com.keystone.shared.domain.model.Conversation
 import com.keystone.shared.domain.model.StoredMessage
 import com.keystone.shared.domain.model.ToolCard
 import kotlinx.datetime.Instant
-import kotlinx.serialization.SerializationException
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 internal fun ConversationDto.toEntity() = ConversationEntity(
     id = id,
@@ -47,25 +53,38 @@ internal fun MessageEntity.toDomain() = StoredMessage(
     },
     createdAt = Instant.fromEpochMilliseconds(createdAtMillis),
     cards = cardsFromParts(partsJson),
+    citations = citationsFromParts(partsJson),
 )
 
 private val PartsSerializer = ListSerializer(JsonElement.serializer())
 
-/** Successful tool results with a known card type; anything else is skipped. */
-internal fun cardsFromParts(partsJson: String): List<ToolCard> {
-    val parts = try {
-        KeystoneJson.decodeFromString(PartsSerializer, partsJson)
-    } catch (e: SerializationException) {
-        return emptyList()
-    } catch (e: IllegalArgumentException) {
-        return emptyList()
-    }
-    return parts.mapNotNull { element ->
-        val part = try {
-            KeystoneJson.decodeFromJsonElement(ToolResultPartDto.serializer(), element)
-        } catch (e: IllegalArgumentException) {
-            return@mapNotNull null // a part type this app version doesn't understand
-        }
-        if (part.type == "tool_result" && part.status == "ok") ToolCardParser.parse(part.ui, part.data) else null
-    }
+private fun decodeParts(partsJson: String): List<JsonElement> = try {
+    KeystoneJson.decodeFromString(PartsSerializer, partsJson)
+} catch (e: IllegalArgumentException) {
+    emptyList() // covers SerializationException: a corrupt cache entry shows no extras
 }
+
+/** Decodes one part, or null if it isn't the expected shape (e.g. a newer part type). */
+private fun <T> JsonElement.decodeOrNull(serializer: KSerializer<T>): T? = try {
+    KeystoneJson.decodeFromJsonElement(serializer, this)
+} catch (e: IllegalArgumentException) {
+    null
+}
+
+private fun JsonElement.partType(): String? =
+    ((this as? JsonObject)?.get("type") as? JsonPrimitive)?.contentOrNull
+
+/** Successful tool results with a known card type; anything else is skipped. */
+internal fun cardsFromParts(partsJson: String): List<ToolCard> =
+    decodeParts(partsJson)
+        .filter { it.partType() == "tool_result" }
+        .mapNotNull { it.decodeOrNull(ToolResultPartDto.serializer()) }
+        .filter { it.status == "ok" }
+        .mapNotNull { ToolCardParser.parse(it.ui, it.data) }
+
+/** The sources the answer cited (from its `citations` part), or none. */
+internal fun citationsFromParts(partsJson: String): List<Citation> =
+    decodeParts(partsJson)
+        .filter { it.partType() == "citations" }
+        .mapNotNull { it.decodeOrNull(CitationsDto.serializer()) }
+        .flatMap { part -> part.items.map { it.toDomain() } }

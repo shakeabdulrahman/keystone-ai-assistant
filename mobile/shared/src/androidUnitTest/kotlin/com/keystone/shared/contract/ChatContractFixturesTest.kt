@@ -5,6 +5,7 @@ import com.keystone.shared.data.remote.KeystoneApi
 import com.keystone.shared.data.remote.createHttpClient
 import com.keystone.shared.data.repository.ChatRepositoryImpl
 import com.keystone.shared.domain.model.ChatEvent
+import com.keystone.shared.domain.model.Citation
 import com.keystone.shared.domain.model.ToolCard
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -89,6 +90,34 @@ class ChatContractFixturesTest {
                 ),
             ),
             result.card,
+        )
+    }
+
+    @Test
+    fun ragFixtureProducesCitations() = runTest {
+        val events = play("chat_stream_rag.sse")
+        assertEquals(
+            listOf(
+                ChatEvent.Started::class, ChatEvent.ToolStarted::class, ChatEvent.ToolResult::class,
+                ChatEvent.Delta::class, ChatEvent.Delta::class, ChatEvent.Citations::class,
+                ChatEvent.Completed::class,
+            ),
+            events.map { it::class },
+        )
+        val result = assertIs<ChatEvent.ToolResult>(events[2])
+        assertEquals(null, result.card) // policy_search has no card in the app
+        val citation = assertIs<ChatEvent.Citations>(events[5]).items.single()
+        assertEquals(
+            Citation(
+                ref = 1,
+                documentId = "leave-policy",
+                title = "Leave Policy",
+                sectionIndex = 5,
+                heading = "Carry-over and expiry",
+                snippet = "You may carry over up to 5 days of unused annual leave into the next calendar year. " +
+                    "Carried-over days must be used by 31 March, after which they expire.",
+            ),
+            citation,
         )
     }
 }

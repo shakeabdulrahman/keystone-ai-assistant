@@ -12,3 +12,7 @@ data object ConversationsDestination
 /** Opens a new chat, or an existing one when [conversationId] is set. */
 @Serializable
 data class ChatDestination(val conversationId: String? = null)
+
+/** A policy document, scrolled to [sectionIndex] (the cited section), or the top when -1. */
+@Serializable
+data class DocumentDestination(val documentId: String, val sectionIndex: Int = -1)

@@ -3,6 +3,7 @@ package com.keystone.shared.data.remote
 import com.keystone.shared.data.remote.dto.ChatRequestDto
 import com.keystone.shared.data.remote.dto.ConversationDto
 import com.keystone.shared.data.remote.dto.ConversationPageDto
+import com.keystone.shared.data.remote.dto.DocumentDto
 import com.keystone.shared.data.remote.dto.MessagePageDto
 import com.keystone.shared.data.remote.dto.MetaDto
 import com.keystone.shared.data.remote.dto.ProfileDto
@@ -23,6 +24,7 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import io.ktor.http.encodeURLPathPart
 import io.ktor.utils.io.readUTF8Line
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -62,6 +64,9 @@ class KeystoneApi(
     internal suspend fun deleteConversation(conversationId: String) {
         client.delete("$baseUrl/v1/conversations/$conversationId")
     }
+
+    internal suspend fun getDocument(documentId: String): DocumentDto =
+        client.get("$baseUrl/v1/documents/${documentId.encodeURLPathPart()}").body()
 
     /**
      * Opens `POST /v1/chat` and emits SSE events as their lines arrive.

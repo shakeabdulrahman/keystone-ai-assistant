@@ -8,7 +8,9 @@ import com.keystone.shared.data.local.buildKeystoneDatabase
 import com.keystone.shared.data.local.keystoneDatabaseBuilder
 import com.keystone.shared.data.remote.KeystoneApi
 import com.keystone.shared.data.repository.ConversationRepositoryImpl
+import com.keystone.shared.data.repository.DocumentRepositoryImpl
 import com.keystone.shared.domain.repository.ConversationRepository
+import com.keystone.shared.domain.repository.DocumentRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -38,4 +40,9 @@ object DataModule {
         conversationDao: ConversationDao,
         messageDao: MessageDao,
     ): ConversationRepository = ConversationRepositoryImpl(api, conversationDao, messageDao)
+
+    /** Singleton: its in-memory cache lives for the app process. */
+    @Provides
+    @Singleton
+    fun provideDocumentRepository(api: KeystoneApi): DocumentRepository = DocumentRepositoryImpl(api)
 }

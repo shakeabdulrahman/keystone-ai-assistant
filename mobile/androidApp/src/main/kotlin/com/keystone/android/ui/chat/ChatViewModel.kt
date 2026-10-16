@@ -181,6 +181,10 @@ class ChatViewModel @Inject constructor(
                                 )
                             }
                         }
+                        is ChatEvent.Citations -> {
+                            flush()
+                            updateMessage(replyId) { it.copy(citations = event.items) }
+                        }
                         is ChatEvent.Completed -> flush(Status.Complete)
                         is ChatEvent.Failed -> flush(Status.Failed, event)
                     }
@@ -231,4 +235,5 @@ private fun StoredMessage.toUi() = ChatMessageUi(
     // A failed answer from an earlier session can still be retried.
     error = if (status == StoredMessage.Status.Failed) AppError.Assistant("ai_unavailable", retryable = true) else null,
     tools = cards.mapIndexed { index, card -> ToolActivityUi("$id-$index", "", ToolActivityUi.State.Done, card) },
+    citations = citations,
 )

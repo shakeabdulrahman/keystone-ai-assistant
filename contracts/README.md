@@ -18,7 +18,9 @@ Local development (`AUTH_MODE=dev`, refused in production): tokens look like `de
 | POST | `/v1/chat` | Send a message; streams the reply (below) |
 | GET | `/v1/conversations?limit=20&cursor=` | Newest first. `{items: [{id, title, created_at, updated_at, last_message_at}], next_cursor}` |
 | GET | `/v1/conversations/{id}` | One conversation (`404` if missing or not yours) |
-| GET | `/v1/conversations/{id}/messages?limit=50&cursor=` | `{items: [{id, role, content, status, created_at, parts}], next_cursor}`. Items are oldest first; `next_cursor` loads **older** messages. `parts` lists the answer's tool results (`type: "tool_result"`, `call_id`, `tool`, `status`, `ui`, `data`) so history shows the same cards |
+| GET | `/v1/conversations/{id}/messages?limit=50&cursor=` | `{items: [{id, role, content, status, created_at, parts}], next_cursor}`. Items are oldest first; `next_cursor` loads **older** messages. `parts` lists the answer's tool results (`type: "tool_result"`, `call_id`, `tool`, `status`, `ui`, `data`) and its sources (`type: "citations"`, `items` as in the `citations` event), so history shows the same cards and sources. Clients skip part types they don't know |
+| GET | `/v1/documents` | Policy documents: `{items: [{id, title, version, effective, owner, updated_at}]}` |
+| GET | `/v1/documents/{id}` | One document with `sections: [{index, heading, body}]` (`body` is Markdown). A citation's `section_index` is an index into `sections`. `404` if unknown |
 | PATCH | `/v1/conversations/{id}` | `{title}` (1–120 chars) |
 | DELETE | `/v1/conversations/{id}` | Removes it from the user's list (`204`) |
 
@@ -55,11 +57,12 @@ Lines starting with `:` are keep-alive comments and carry no data.
 | `message.completed` | `message_id`, `finish_reason` (`stop`/`length`), `usage` {`input_tokens`, `output_tokens`} | Mark the message complete |
 | `tool.started` | `call_id`, `tool`, `label` (e.g. "Checking your leave balance") | Show a progress row with the label |
 | `tool.result` | `call_id`, `tool`, `status` (`ok`/`error`), `ui` (card type or null), `data` (object) | Replace the progress row with the card for `ui`; on error, a short "couldn't load" note |
+| `citations` | `items[]`: `ref` (the number in the text, `[1]`), `document_id`, `title`, `section_index`, `heading`, `snippet` (plain text) | Show source chips under the answer; open `GET /v1/documents/{document_id}` at `section_index` when tapped |
 | `error` | `code`, `message` (safe to show), `retryable` | Show the message; offer Retry if `retryable` |
 
-Order: `message.started`, then any mix of `text.delta` and `tool.started`/`tool.result` pairs (same `call_id`), then exactly one of `message.completed` or `error`. A model may call several tools, over several steps, before or between text.
+Order: `message.started`, then any mix of `text.delta` and `tool.started`/`tool.result` pairs (same `call_id`), then at most one `citations` (only sources the answer cited), then exactly one of `message.completed` or `error`. A model may call several tools, over several steps, before or between text.
 
-**Forward compatibility:** clients must ignore event types, fields and `ui` card types they don't recognise. Later phases add `confirmation.required` and `citations`.
+**Forward compatibility:** clients must ignore event types, fields and `ui` card types they don't recognise. Later phases add `confirmation.required`.
 
 ### Tool cards (`ui` → `data`)
 
@@ -74,6 +77,7 @@ All dates are ISO 8601 (`2026-10-15`, or full timestamps for meetings and notifi
 | `tasks` | `filter`, `items[]`: `id`, `title`, `category`, `due`, `status` (`pending`/`done`), `overdue` |
 | `appointments` | `filter`, `items[]`: `id`, `title`, `with`, `start`, `end`, `location` |
 | `notifications` | `items[]`: `id`, `title`, `body`, `created_at`, `read` |
+| `policy_search` | `query`, `results[]`: `ref`, `document`, `section`, `text`; `note` when nothing matched. Meant for the model; apps may show nothing and rely on `citations` |
 
 Results larger than the size limit carry `"truncated": true`.
 
@@ -87,3 +91,4 @@ Error codes: `ai_unavailable`, `ai_timeout`, `ai_rate_limited` (retryable), `ai_
 | `fixtures/chat_stream_error.sse` | A reply that fails part-way |
 | `fixtures/chat_stream_forward_compat.sse` | An unknown event type and extra fields that clients must ignore |
 | `fixtures/chat_stream_tool.sse` | A tool call (leave balance) followed by the answer |
+| `fixtures/chat_stream_rag.sse` | A policy search, a cited answer, and the `citations` event |

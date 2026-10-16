@@ -1,10 +1,11 @@
 """The streaming event contract between the gateway and the apps (see /contracts).
 
 Every chat turn is one SSE stream:
-    message.started → (text.delta | tool.started | tool.result)* → (message.completed | error)
-Tool events come in pairs with the same call_id. Later phases add more event types
-(citations, confirmation.required). Clients must ignore event types they don't know,
-so old app versions keep working.
+    message.started → (text.delta | tool.started | tool.result)* → citations?
+                    → (message.completed | error)
+Tool events come in pairs with the same call_id. `citations` lists the policy passages the
+answer cited, just before completion. Later phases add confirmation.required.
+Clients must ignore event types they don't know, so old app versions keep working.
 """
 
 import json
@@ -46,6 +47,20 @@ class ToolResultOut(BaseModel):
     data: dict[str, Any]
 
 
+class CitationOut(BaseModel):
+    ref: int  # the number used in the answer text: [1]
+    document_id: str
+    title: str
+    section_index: int  # opens the document at this section (GET /v1/documents/{id})
+    heading: str
+    snippet: str
+
+
+class CitationsOut(BaseModel):
+    type: Literal["citations"] = "citations"
+    items: list[CitationOut]
+
+
 class MessageCompleted(BaseModel):
     type: Literal["message.completed"] = "message.completed"
     message_id: str
@@ -61,7 +76,13 @@ class StreamError(BaseModel):
 
 
 StreamEvent = (
-    MessageStarted | TextDeltaOut | ToolStarted | ToolResultOut | MessageCompleted | StreamError
+    MessageStarted
+    | TextDeltaOut
+    | ToolStarted
+    | ToolResultOut
+    | CitationsOut
+    | MessageCompleted
+    | StreamError
 )
 
 

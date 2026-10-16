@@ -1,19 +1,21 @@
 package com.keystone.shared.data.remote
 
 import com.keystone.shared.core.AppError
+import com.keystone.shared.data.remote.dto.CitationsDto
 import com.keystone.shared.data.remote.dto.MessageCompletedDto
 import com.keystone.shared.data.remote.dto.MessageStartedDto
 import com.keystone.shared.data.remote.dto.StreamErrorDto
 import com.keystone.shared.data.remote.dto.TextDeltaDto
 import com.keystone.shared.data.remote.dto.ToolResultDto
 import com.keystone.shared.data.remote.dto.ToolStartedDto
+import com.keystone.shared.data.remote.dto.toDomain
 import com.keystone.shared.data.remote.sse.SseEvent
 import com.keystone.shared.domain.model.ChatEvent
 import com.keystone.shared.domain.model.TokenUsage
 
 /**
  * Turns wire events into domain events. Unknown event types return null and are skipped:
- * that is what lets the server add new events (citations, confirmations) without breaking
+ * that is what lets the server add new events (confirmations, ...) without breaking
  * app versions already installed on users' phones.
  */
 internal object ChatStreamMapper {
@@ -29,6 +31,7 @@ internal object ChatStreamMapper {
             val ok = it.status == "ok"
             ChatEvent.ToolResult(it.callId, it.tool, ok, if (ok) ToolCardParser.parse(it.ui, it.data) else null)
         }
+        "citations" -> ChatEvent.Citations(decode<CitationsDto>(event).items.map { it.toDomain() })
         "message.completed" -> decode<MessageCompletedDto>(event).let {
             ChatEvent.Completed(
                 messageId = it.messageId,

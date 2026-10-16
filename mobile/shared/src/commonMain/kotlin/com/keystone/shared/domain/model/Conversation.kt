@@ -17,6 +17,8 @@ data class StoredMessage(
     val createdAt: Instant,
     /** Cards from the tools the assistant used for this answer, in call order. */
     val cards: List<ToolCard> = emptyList(),
+    /** Policy sources the answer cited. */
+    val citations: List<Citation> = emptyList(),
 ) {
     enum class Role { User, Assistant }
 

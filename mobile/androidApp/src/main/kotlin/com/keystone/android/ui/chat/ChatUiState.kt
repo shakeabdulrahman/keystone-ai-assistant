@@ -1,6 +1,7 @@
 package com.keystone.android.ui.chat
 
 import com.keystone.shared.core.AppError
+import com.keystone.shared.domain.model.Citation
 import com.keystone.shared.domain.model.ToolCard
 
 data class ChatUiState(
@@ -21,6 +22,8 @@ data class ChatMessageUi(
     val error: AppError? = null,
     /** HR lookups the assistant made for this answer, shown above its text in call order. */
     val tools: List<ToolActivityUi> = emptyList(),
+    /** Policy sources the answer cited, shown as chips under it. */
+    val citations: List<Citation> = emptyList(),
 ) {
     enum class Role { User, Assistant }
 

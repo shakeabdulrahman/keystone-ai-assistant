@@ -2,7 +2,7 @@
 
 An AI-powered mobile assistant for employees: ask about leave, HR requests, onboarding and company policies by text or voice. The assistant answers from live HR data through **tool calling**, from company documents through **RAG**, streams its replies, and renders real app UI (cards, confirmations, sources) instead of plain text.
 
-> Status: **Phase 3 — Tool calling and generative UI cards** complete. See the [roadmap](#roadmap). The full README (architecture diagrams, screenshots, demo video) arrives in Phase 8.
+> Status: **Phase 4 — Answers from HR policies with sources (RAG)** complete. See the [roadmap](#roadmap). The full README (architecture diagrams, screenshots, demo video) arrives in Phase 8.
 
 ## Architecture at a glance
 
@@ -27,6 +27,7 @@ The mobile app never holds AI keys. Changing LLM vendor changes one backend adap
 | Path | What lives there |
 | --- | --- |
 | `backend/` | FastAPI AI gateway, migrations, tests, Dockerfile |
+| `backend/knowledge/` | Sample HR policy documents (fictional company) and the retrieval eval set |
 | `mobile/` | Android app, KMP `shared` module, design system |
 | `docs/adr/` | Architecture Decision Records |
 | `docs/phases/` | What was built in each phase and why |
@@ -39,7 +40,7 @@ The mobile app never holds AI keys. Changing LLM vendor changes one backend adap
 Prerequisites: Docker Desktop, Android Studio (latest stable), JDK 17+.
 
 ```bash
-# 1. Backend + database (Ollama running locally with: ollama pull qwen2.5:7b)
+# 1. Backend + database (Ollama running, with: ollama pull qwen2.5:7b && ollama pull nomic-embed-text)
 cp backend/.env.example backend/.env
 docker compose up --build
 curl http://localhost:8000/healthz      # {"status":"ok"}
@@ -60,6 +61,8 @@ cd backend
 uv sync
 uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
+uv run python -m app.rag.ingest   # load the policy documents
+uv run python -m app.rag.eval     # retrieval quality (hit@k, MRR)
 uv run pytest
 ```
 
@@ -71,8 +74,8 @@ uv run pytest
 | 1 | Streaming chat (SSE, provider abstraction, Fake + Ollama) | Done |
 | 2 | Firebase sign-in, conversations and history, offline cache | Done |
 | 3 | Tool calling + generative UI cards | Done |
-| 4 | RAG over HR documents with citations | Next |
-| 5 | Write actions with user confirmation | |
+| 4 | RAG over HR documents with citations | Done |
+| 5 | Write actions with user confirmation | Next |
 | 6 | Voice | |
 | 7 | Home dashboard + push notifications | |
 | 8 | Security hardening, observability, deployment, demo | |

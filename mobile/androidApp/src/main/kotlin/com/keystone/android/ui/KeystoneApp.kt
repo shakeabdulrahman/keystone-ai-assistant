@@ -16,9 +16,11 @@ import com.keystone.android.auth.AuthState
 import com.keystone.android.ui.auth.SignInRoute
 import com.keystone.android.ui.chat.ChatRoute
 import com.keystone.android.ui.conversations.ConversationsRoute
+import com.keystone.android.ui.document.DocumentRoute
 import com.keystone.android.ui.home.HomeRoute
 import com.keystone.android.ui.navigation.ChatDestination
 import com.keystone.android.ui.navigation.ConversationsDestination
+import com.keystone.android.ui.navigation.DocumentDestination
 import com.keystone.android.ui.navigation.HomeDestination
 
 /**
@@ -57,7 +59,15 @@ private fun SignedInApp(email: String?, onSignOut: () -> Unit) {
             )
         }
         composable<ChatDestination> {
-            ChatRoute(onBack = { navController.popBackStack() })
+            ChatRoute(
+                onBack = { navController.popBackStack() },
+                onOpenSource = { citation ->
+                    navController.navigate(DocumentDestination(citation.documentId, citation.sectionIndex))
+                },
+            )
+        }
+        composable<DocumentDestination> {
+            DocumentRoute(onBack = { navController.popBackStack() })
         }
     }
 }

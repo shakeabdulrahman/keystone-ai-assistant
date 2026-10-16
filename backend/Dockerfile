@@ -16,6 +16,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY alembic.ini ./
 COPY migrations ./migrations
 COPY app ./app
+COPY knowledge ./knowledge
 
 # Run as an unprivileged user.
 RUN useradd --create-home --uid 10001 keystone

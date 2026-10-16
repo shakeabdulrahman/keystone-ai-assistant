@@ -1,0 +1,21 @@
+event: message.started
+data: {"seq":1,"conversation_id":"3f0c2a8e-5d1b-4c7a-9e2f-1a2b3c4d5e6f","message_id":"9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b","user_message_id":"5d6e7f8a-9b0c-4d1e-8f2a-3b4c5d6e7f8a"}
+
+event: tool.started
+data: {"seq":2,"call_id":"call_1","tool":"searchPolicies","label":"Searching HR policies"}
+
+event: tool.result
+data: {"seq":3,"call_id":"call_1","tool":"searchPolicies","status":"ok","ui":"policy_search","data":{"query":"carry over annual leave","results":[{"ref":1,"document":"Leave Policy","section":"Carry-over and expiry","text":"You may carry over up to **5 days** of unused annual leave into the next calendar year."},{"ref":2,"document":"Leave Policy","section":"Leave entitlement","text":"Annual leave: 20 working days"}]}}
+
+event: text.delta
+data: {"seq":4,"text":"You can carry over up to 5 days of unused annual leave, "}
+
+event: text.delta
+data: {"seq":5,"text":"and they must be used by 31 March [1]."}
+
+event: citations
+data: {"seq":6,"items":[{"ref":1,"document_id":"leave-policy","title":"Leave Policy","section_index":5,"heading":"Carry-over and expiry","snippet":"You may carry over up to 5 days of unused annual leave into the next calendar year. Carried-over days must be used by 31 March, after which they expire."}]}
+
+event: message.completed
+data: {"seq":7,"message_id":"9e0f1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b","finish_reason":"stop","usage":{"input_tokens":512,"output_tokens":31}}
+

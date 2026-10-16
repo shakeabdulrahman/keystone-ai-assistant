@@ -107,4 +107,15 @@
     <string name="tool_status_done">Done</string>
     <string name="tool_status_overdue">Overdue</string>
     <string name="tool_status_to_do">To do</string>
+    <!-- Sources and policy documents (Phase 4) -->
+    <string name="chat_sources">Sources</string>
+    <string name="chat_source_chip">[%1$d] %2$s · %3$s</string>
+    <string name="chat_source_open">Open %1$s, section %2$s</string>
+    <string name="chat_source_chip_document">[%1$d] %2$s</string>
+    <string name="chat_source_open_document">Open %1$s</string>
+    <string name="chat_suggestion_policy">Can I carry over unused leave?</string>
+    <string name="document_title">Policy</string>
+    <string name="document_meta">Version %1$s · effective %2$s · %3$s</string>
+    <string name="document_cited_section">Cited in the answer</string>
+    <string name="document_not_found">This document is no longer available.</string>
 </resources>

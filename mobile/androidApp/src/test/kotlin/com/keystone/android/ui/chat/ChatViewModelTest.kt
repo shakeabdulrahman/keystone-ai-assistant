@@ -7,6 +7,7 @@ import com.keystone.android.ui.chat.ChatMessageUi.Role
 import com.keystone.android.ui.chat.ChatMessageUi.Status
 import com.keystone.shared.core.AppError
 import com.keystone.shared.domain.model.ChatEvent
+import com.keystone.shared.domain.model.Citation
 import com.keystone.shared.domain.model.StoredMessage
 import com.keystone.shared.domain.model.TokenUsage
 import com.keystone.shared.domain.model.ToolCard
@@ -285,6 +286,45 @@ class ChatViewModelTest {
         val answer = vm.uiState.value.messages[1]
         assertEquals(listOf(balance), answer.tools.map { it.card })
         assertTrue(answer.tools.all { it.state == ToolActivityUi.State.Done })
+    }
+
+    private val source = Citation(1, "leave-policy", "Leave Policy", 5, "Carry-over and expiry", "You may carry over…")
+
+    @Test
+    fun `cited answer shows its sources`() = runTest(mainDispatcherRule.dispatcher) {
+        val script = flow<ChatEvent> {
+            emit(ChatEvent.Started("c1", "m1", "u1"))
+            emit(ChatEvent.ToolStarted("call_1", "searchPolicies", "Searching HR policies"))
+            emit(ChatEvent.ToolResult("call_1", "searchPolicies", ok = true, card = null))
+            emit(ChatEvent.Delta("Up to 5 days [1]."))
+            emit(ChatEvent.Citations(listOf(source)))
+            emit(ChatEvent.Completed("m1", truncated = false, usage = TokenUsage(1, 1)))
+        }
+        val vm = viewModel(FakeChatRepository(script))
+
+        vm.onSuggestion("Can I carry over unused leave?")
+        advanceUntilIdle()
+
+        val answer = vm.uiState.value.messages.last()
+        assertEquals("Up to 5 days [1].", answer.text)
+        assertEquals(listOf(source), answer.citations)
+        assertEquals(ToolActivityUi.State.Done, answer.tools.single().state)
+        assertEquals(Status.Complete, answer.status)
+    }
+
+    @Test
+    fun `history shows saved sources`() = runTest(mainDispatcherRule.dispatcher) {
+        history.serverMessages = mapOf(
+            "c7" to listOf(
+                stored("1", StoredMessage.Role.User, "Carry over?", StoredMessage.Status.Complete),
+                stored("22", StoredMessage.Role.Assistant, "Up to 5 days [1].", StoredMessage.Status.Complete)
+                    .copy(citations = listOf(source)),
+            ),
+        )
+        val vm = viewModel(FakeChatRepository(), conversationId = "c7")
+        advanceUntilIdle()
+
+        assertEquals(listOf(source), vm.uiState.value.messages[1].citations)
     }
 
     @Test

@@ -13,3 +13,4 @@ Short records of the decisions that shape Keystone. Each one states the context,
 | [0007](0007-free-llm-providers.md) | LLM providers: free tiers behind an abstraction |
 | [0008](0008-no-agent-framework.md) | No agent framework |
 | [0009](0009-hosting.md) | Hosting: local first, free tier later |
+| [0010](0010-rag-retrieval-design.md) | RAG: search as a tool, hybrid retrieval, server-verified citations |

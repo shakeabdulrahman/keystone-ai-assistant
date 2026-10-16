@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
@@ -49,6 +50,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -60,11 +62,13 @@ import com.keystone.android.ui.chat.cards.ToolActivity
 import com.keystone.designsystem.theme.KeystoneTheme
 import com.keystone.shared.core.AppError
 import com.keystone.shared.core.isRetryable
+import com.keystone.shared.domain.model.Citation
 import com.keystone.shared.domain.model.ToolCard
 
 @Composable
 fun ChatRoute(
     onBack: () -> Unit,
+    onOpenSource: (Citation) -> Unit,
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -76,6 +80,7 @@ fun ChatRoute(
         onStop = viewModel::onStop,
         onRetry = viewModel::onRetry,
         onSuggestion = viewModel::onSuggestion,
+        onOpenSource = onOpenSource,
     )
 }
 
@@ -90,6 +95,7 @@ fun ChatScreen(
     onRetry: (String) -> Unit,
     onSuggestion: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenSource: (Citation) -> Unit = {},
 ) {
     Scaffold(
         modifier = modifier,
@@ -121,7 +127,7 @@ fun ChatScreen(
         } else if (state.messages.isEmpty()) {
             EmptyChat(onSuggestion = onSuggestion, modifier = Modifier.padding(innerPadding))
         } else {
-            MessageList(state.messages, onRetry, Modifier.padding(innerPadding))
+            MessageList(state.messages, onRetry, onOpenSource, Modifier.padding(innerPadding))
         }
     }
 }
@@ -130,12 +136,13 @@ fun ChatScreen(
 private fun MessageList(
     messages: List<ChatMessageUi>,
     onRetry: (String) -> Unit,
+    onOpenSource: (Citation) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
     // Follow the conversation: scroll when a message is added or the last one grows.
     val last = messages.lastOrNull()
-    LaunchedEffect(messages.size, last?.text?.length, last?.status, last?.tools) {
+    LaunchedEffect(messages.size, last?.text?.length, last?.status, last?.tools, last?.citations) {
         listState.animateScrollToItem(messages.lastIndex)
     }
     LazyColumn(
@@ -145,13 +152,13 @@ private fun MessageList(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         items(messages, key = { it.id }) { message ->
-            MessageBubble(message, onRetry = { onRetry(message.id) })
+            MessageBubble(message, onRetry = { onRetry(message.id) }, onOpenSource = onOpenSource)
         }
     }
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessageUi, onRetry: () -> Unit) {
+private fun MessageBubble(message: ChatMessageUi, onRetry: () -> Unit, onOpenSource: (Citation) -> Unit) {
     val isUser = message.role == Role.User
     val speaker = stringResource(if (isUser) R.string.chat_you else R.string.app_name)
     Row(
@@ -196,10 +203,50 @@ private fun MessageBubble(message: ChatMessageUi, onRetry: () -> Unit) {
                     }
                 }
             }
+            if (message.citations.isNotEmpty()) Sources(message.citations, onOpenSource)
             when (message.status) {
                 Status.Stopped -> Caption(stringResource(R.string.chat_stopped))
                 Status.Failed -> FailureRow(message.error, onRetry)
                 else -> Unit
+            }
+        }
+    }
+}
+
+/** Tappable source chips: "[1] Leave Policy · Carry-over and expiry". */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun Sources(citations: List<Citation>, onOpenSource: (Citation) -> Unit) {
+    Column(Modifier.widthIn(max = 340.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            stringResource(R.string.chat_sources),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp),
+        )
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            citations.forEach { citation ->
+                val hasHeading = citation.heading.isNotBlank()
+                val description = if (hasHeading) {
+                    stringResource(R.string.chat_source_open, citation.title, citation.heading)
+                } else {
+                    stringResource(R.string.chat_source_open_document, citation.title)
+                }
+                AssistChip(
+                    onClick = { onOpenSource(citation) },
+                    label = {
+                        Text(
+                            if (hasHeading) {
+                                stringResource(R.string.chat_source_chip, citation.ref, citation.title, citation.heading)
+                            } else {
+                                stringResource(R.string.chat_source_chip_document, citation.ref, citation.title)
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    modifier = Modifier.semantics { contentDescription = description },
+                )
             }
         }
     }
@@ -264,6 +311,7 @@ private fun EmptyChat(onSuggestion: (String) -> Unit, modifier: Modifier = Modif
         stringResource(R.string.chat_suggestion_leave),
         stringResource(R.string.chat_suggestion_onboarding),
         stringResource(R.string.chat_suggestion_request),
+        stringResource(R.string.chat_suggestion_policy),
     )
     Column(
         modifier = modifier
@@ -365,6 +413,29 @@ private fun ChatConversationPreview() {
                     ),
                 ),
                 isResponding = true,
+            ),
+            onBack = {}, onInputChange = {}, onSend = {}, onStop = {}, onRetry = {}, onSuggestion = {},
+        )
+    }
+}
+
+@Preview(name = "Answer with sources")
+@Composable
+private fun ChatSourcesPreview() {
+    KeystoneTheme {
+        ChatScreen(
+            state = ChatUiState(
+                messages = listOf(
+                    ChatMessageUi("1", Role.User, "Can I carry over unused leave?"),
+                    ChatMessageUi(
+                        "2",
+                        Role.Assistant,
+                        "Yes, up to 5 days, which must be used by 31 March [1].",
+                        citations = listOf(
+                            Citation(1, "leave-policy", "Leave Policy", 5, "Carry-over and expiry", "You may carry over…"),
+                        ),
+                    ),
+                ),
             ),
             onBack = {}, onInputChange = {}, onSend = {}, onStop = {}, onRetry = {}, onSuggestion = {},
         )

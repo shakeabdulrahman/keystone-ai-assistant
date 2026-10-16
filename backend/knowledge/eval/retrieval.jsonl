@@ -1,0 +1,34 @@
+{"question": "How many days of annual leave do I get each year?", "document": "leave-policy", "section": "Leave entitlement"}
+{"question": "Can I carry over unused holiday to next year?", "document": "leave-policy", "section": "Carry-over and expiry"}
+{"question": "When do I need a doctor's note for being sick?", "document": "leave-policy", "section": "Sick leave"}
+{"question": "How far in advance should I book a two week vacation?", "document": "leave-policy", "section": "Requesting annual leave"}
+{"question": "What happens if I have to work on a public holiday?", "document": "leave-policy", "section": "Public holidays"}
+{"question": "How much maternity leave do I get?", "document": "parental-leave", "section": "Primary caregiver leave"}
+{"question": "How long is paternity leave for the second parent?", "document": "parental-leave", "section": "Secondary caregiver leave"}
+{"question": "We are adopting a child, what leave can I take?", "document": "parental-leave", "section": "Adoption and surrogacy"}
+{"question": "Can I work part time when I come back from parental leave?", "document": "parental-leave", "section": "Returning to work"}
+{"question": "How many days a week do I have to be in the office?", "document": "remote-work", "section": "Hybrid working"}
+{"question": "Can I work from another country for a few weeks?", "document": "remote-work", "section": "Working from another location"}
+{"question": "Is there an allowance to buy a desk chair for home?", "document": "remote-work", "section": "Home office equipment"}
+{"question": "What should I do if my laptop is stolen?", "document": "remote-work", "section": "Security when working remotely"}
+{"question": "What is the daily meal limit on business trips?", "document": "expenses", "section": "Limits"}
+{"question": "How long do I have to submit an expense claim?", "document": "expenses", "section": "How to submit a claim"}
+{"question": "I lost a receipt, can I still get reimbursed?", "document": "expenses", "section": "Late or missing receipts"}
+{"question": "Can I fly business class on a long flight?", "document": "expenses", "section": "Limits"}
+{"question": "Does the company match my pension contributions?", "document": "benefits", "section": "Pension"}
+{"question": "Is my gym membership covered?", "document": "benefits", "section": "Wellbeing"}
+{"question": "What is the budget for training courses and certifications?", "document": "benefits", "section": "Learning and development"}
+{"question": "How do I add my newborn to health insurance?", "document": "benefits", "section": "Health insurance"}
+{"question": "Can I accept a gift from a supplier?", "document": "code-of-conduct", "section": "Gifts and hospitality"}
+{"question": "How do I report misconduct anonymously?", "document": "code-of-conduct", "section": "Speaking up"}
+{"question": "Do I need to declare a second job?", "document": "code-of-conduct", "section": "Conflicts of interest"}
+{"question": "How long is the probation period?", "document": "onboarding", "section": "Probation"}
+{"question": "Which trainings are mandatory for new joiners and by when?", "document": "onboarding", "section": "Mandatory training"}
+{"question": "What do I need to upload before my first day?", "document": "onboarding", "section": "Before your first day"}
+{"question": "Who is my onboarding buddy and what do they do?", "document": "onboarding", "section": "Your first week"}
+{"question": "What's the weather in Paris tomorrow?", "document": null}
+{"question": "Tell me a joke", "document": null}
+{"question": "Can I bring my dog to the office?", "document": null}
+{"question": "Who won the football match last night?", "document": null}
+{"question": "Write me a poem about cats", "document": null}
+{"question": "What is the capital of France?", "document": null}

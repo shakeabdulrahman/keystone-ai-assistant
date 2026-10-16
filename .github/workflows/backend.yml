@@ -64,6 +64,11 @@ jobs:
       - name: Test
         run: uv run pytest -v
 
+      - name: Retrieval eval (offline embedder)
+        run: uv run python -m app.rag.eval
+        env:
+          EMBEDDING_PROVIDER: hashing
+
   docker:
     runs-on: ubuntu-latest
     needs: test

@@ -1,6 +1,10 @@
+import asyncio
 from collections.abc import AsyncIterator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
+from functools import cache
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -13,6 +17,10 @@ from app.core.auth import DevTokenVerifier
 from app.core.config import Settings
 from app.integrations.hris import DemoHrisClient
 from app.main import create_app
+from app.rag.embeddings import HashingEmbedder
+from app.rag.ingest import ingest
+from app.rag.retriever import Retriever
+from app.rag.store import InMemoryKnowledgeStore
 from app.repositories.memory import (
     InMemoryConversationRepository,
     InMemoryToolAuditRepository,
@@ -43,6 +51,22 @@ class Harness:
     conversations: InMemoryConversationRepository
     titles: TitleGenerator
     audit: InMemoryToolAuditRepository
+    knowledge: InMemoryKnowledgeStore
+
+
+KNOWLEDGE_DIR = Path(__file__).parent.parent / "knowledge"
+
+
+@cache
+def knowledge_store() -> InMemoryKnowledgeStore:
+    """The real policy documents, embedded once per test run with the offline embedder.
+
+    Built in a worker thread because tests already run inside an event loop.
+    """
+    store = InMemoryKnowledgeStore()
+    with ThreadPoolExecutor(1) as pool:
+        pool.submit(asyncio.run, ingest(KNOWLEDGE_DIR, store, HashingEmbedder())).result()
+    return store
 
 
 TODAY = date(2026, 10, 15)  # fixed so demo HR data is identical on every run
@@ -53,6 +77,7 @@ def build_test_app(
     history_messages: int = 20,
     titles: bool = False,
     max_steps: int = 4,
+    retriever: Retriever | None = None,
 ) -> Harness:
     """The real app, wired to in-memory repositories, dev auth, demo HR data and a fake model."""
     provider = provider or FakeLLMProvider("Hello from Keystone", delay_s=0)
@@ -64,6 +89,8 @@ def build_test_app(
     app.state.users = users
     app.state.conversations = conversations
     app.state.titles = title_generator if titles else None
+    knowledge = knowledge_store()
+    app.state.knowledge_store = knowledge
     app.state.chat_service = ChatService(
         provider,
         conversations,
@@ -75,9 +102,10 @@ def build_test_app(
             hris=DemoHrisClient(today=TODAY),
             audit=audit,
             max_steps=max_steps,
+            knowledge=retriever or Retriever(knowledge, HashingEmbedder()),
         ),
     )
-    return Harness(app, provider, users, conversations, title_generator, audit)
+    return Harness(app, provider, users, conversations, title_generator, audit, knowledge)
 
 
 @pytest.fixture

@@ -24,6 +24,8 @@ import anyio
 from fastapi import HTTPException
 
 from app.ai.events import (
+    CitationOut,
+    CitationsOut,
     MessageCompleted,
     MessageStarted,
     StreamError,
@@ -46,6 +48,8 @@ from app.ai.llm.types import (
 from app.ai.prompts import SYSTEM_PROMPT_VERSION, system_prompt
 from app.ai.tools.registry import ToolContext, ToolExecution, ToolRegistry
 from app.integrations.hris import HrisClient
+from app.rag.citations import Citation, SourceBook
+from app.rag.retriever import Retriever
 from app.repositories.base import (
     ConversationRepository,
     DuplicateMessageError,
@@ -82,6 +86,7 @@ class AgentTools:
     hris: HrisClient
     audit: ToolAuditRepository
     max_steps: int = 4
+    knowledge: Retriever | None = None  # policy search (RAG); None disables it
 
 
 @dataclass(frozen=True)
@@ -155,6 +160,8 @@ class ChatService:
         assistant_id = uuid.uuid4()  # announced now, used as the stored row's ID at the end
         parts: list[str] = []
         executions: list[ToolExecution] = []
+        sources = SourceBook()  # numbers every retrieved passage once per answer
+        citations: list[Citation] = []
         status: MessageStatus = "failed"
         finish = "error"
         usage = Usage()
@@ -211,7 +218,13 @@ class ChatService:
                 working.append(
                     ChatMessage("assistant", "".join(step_text), tool_calls=tuple(calls))
                 )
-                ctx = ToolContext(user=turn.user, hris=self._tools.hris, today=today)
+                ctx = ToolContext(
+                    user=turn.user,
+                    hris=self._tools.hris,
+                    today=today,
+                    knowledge=self._tools.knowledge,
+                    sources=sources,
+                )
                 for call in calls:
                     mark_first_output()
                     yield ToolStarted(
@@ -237,6 +250,11 @@ class ChatService:
                         )
                     )
 
+            citations = sources.cited("".join(parts))
+            if citations:
+                yield CitationsOut(
+                    items=[CitationOut.model_validate(c.to_dict()) for c in citations]
+                )
             status = "complete"
             yield MessageCompleted(
                 message_id=str(assistant_id),
@@ -264,7 +282,14 @@ class ChatService:
             # database write would be cancelled before it happened (see Phase 1 notes).
             with anyio.CancelScope(shield=True):
                 await self._save_answer(
-                    turn, assistant_id, "".join(parts), status, usage, duration_ms, executions
+                    turn,
+                    assistant_id,
+                    "".join(parts),
+                    status,
+                    usage,
+                    duration_ms,
+                    executions,
+                    citations,
                 )
             logger.info(
                 "chat_turn",
@@ -278,6 +303,8 @@ class ChatService:
                     "agent_steps": steps,
                     "tools_called": [e.tool for e in executions],
                     "tool_errors": sum(e.status == "error" for e in executions),
+                    "sources_retrieved": len(sources),
+                    "sources_cited": len(citations),
                     "ttft_ms": round(first_output_ms, 1) if first_output_ms is not None else None,
                     "duration_ms": round(duration_ms, 1),
                     "input_tokens": usage.input_tokens,
@@ -298,7 +325,11 @@ class ChatService:
         usage: Usage,
         duration_ms: float,
         executions: list[ToolExecution],
+        citations: list[Citation],
     ) -> None:
+        parts = [_tool_part(e) for e in executions]
+        if citations:
+            parts.append({"type": "citations", "items": [c.to_dict() for c in citations]})
         try:
             await self._conversations.add_message(
                 turn.conversation_id,
@@ -312,8 +343,8 @@ class ChatService:
                     input_tokens=usage.input_tokens or None,
                     output_tokens=usage.output_tokens or None,
                     latency_ms=round(duration_ms),
-                    # The cards, so reopening the conversation shows them again.
-                    parts=[_tool_part(e) for e in executions] or None,
+                    # Cards and sources, so reopening the conversation shows them again.
+                    parts=parts or None,
                 ),
             )
             if self._tools is not None and executions:

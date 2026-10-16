@@ -8,7 +8,7 @@ from fastapi import FastAPI
 
 from app.ai.llm.factory import create_llm_provider
 from app.ai.tools.hr_tools import build_hr_registry
-from app.api import auth, chat, conversations, health
+from app.api import auth, chat, conversations, documents, health
 from app.core.auth import DevTokenVerifier, FirebaseTokenVerifier, TokenVerifier
 from app.core.config import Settings, get_settings
 from app.core.errors import register_error_handlers
@@ -16,6 +16,9 @@ from app.core.logging import configure_logging
 from app.core.middleware import RequestContextMiddleware
 from app.db.session import Database
 from app.integrations.hris import DemoHrisClient
+from app.rag.factory import create_embedder
+from app.rag.retriever import Retriever
+from app.rag.sql_store import SqlKnowledgeStore
 from app.repositories.sql import (
     SqlConversationRepository,
     SqlToolAuditRepository,
@@ -39,15 +42,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "env": settings.app_env,
                 "version": settings.app_version,
                 "llm_provider": settings.llm_provider,
+                "embedding_model": app.state.embedder.model,
             },
         )
         yield
         if app.state.titles is not None:
             await app.state.titles.drain()
         await app.state.db.dispose()
-        aclose = getattr(app.state.llm, "aclose", None)
-        if aclose is not None:
-            await aclose()
+        for client in (app.state.llm, app.state.embedder):
+            aclose = getattr(client, "aclose", None)
+            if aclose is not None:
+                await aclose()
         logger.info("shutdown")
 
     app = FastAPI(
@@ -64,6 +69,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.token_verifier = _token_verifier(settings)
     app.state.users = SqlUserRepository(app.state.db.session_factory)
     app.state.conversations = SqlConversationRepository(app.state.db.session_factory)
+    app.state.embedder = create_embedder(settings)
+    app.state.knowledge_store = SqlKnowledgeStore(app.state.db.session_factory)
+    app.state.retriever = Retriever(
+        app.state.knowledge_store,
+        app.state.embedder,
+        top_k=settings.rag_top_k,
+        min_similarity=settings.rag_min_similarity,
+    )
     app.state.titles = (
         TitleGenerator(app.state.llm, app.state.conversations)
         if settings.title_generation_enabled
@@ -80,6 +93,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             hris=DemoHrisClient(),  # stands in for a real HR system (Workday, BambooHR, ...)
             audit=SqlToolAuditRepository(app.state.db.session_factory),
             max_steps=settings.agent_max_steps,
+            knowledge=app.state.retriever,
         ),
     )
 
@@ -89,6 +103,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth.router)
     app.include_router(chat.router)
     app.include_router(conversations.router)
+    app.include_router(documents.router)
     return app
 
 

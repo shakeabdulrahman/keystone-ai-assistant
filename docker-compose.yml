@@ -26,8 +26,13 @@ services:
       # Ollama runs on your Mac, outside Docker. host.docker.internal is the Mac as seen
       # from inside a container (Docker Desktop provides it).
       OLLAMA_BASE_URL: http://host.docker.internal:11434
-    # Apply migrations, then start the server.
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    # Apply migrations, load the policy documents (skipped if unchanged), start the server.
+    # If loading fails (e.g. the embedding model isn't pulled), the server still starts;
+    # policy questions then get "couldn't search the policies" until it's fixed.
+    command: >
+      sh -c "alembic upgrade head &&
+      (python -m app.rag.ingest || echo 'Knowledge base NOT loaded - see the error above') &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000"
     ports:
       - "8000:8000"
     depends_on:
