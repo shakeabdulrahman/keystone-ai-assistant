@@ -1,6 +1,6 @@
 [versions]
 # Pinned to a known-compatible set. Android Studio may suggest upgrades; take them one at a time.
-agp = "8.10.1"
+agp = "9.4.1"
 kotlin = "2.1.21"
 ksp = "2.1.21-2.0.1"
 hilt = "2.56.2"
