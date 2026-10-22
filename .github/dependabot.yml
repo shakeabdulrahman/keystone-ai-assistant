@@ -10,6 +10,9 @@ updates:
   - package-ecosystem: gradle
     directory: /mobile
     schedule: { interval: weekly }
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       android-minor:
         update-types: [minor, patch]
