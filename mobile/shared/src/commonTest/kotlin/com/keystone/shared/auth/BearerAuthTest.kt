@@ -60,7 +60,7 @@ class BearerAuthTest {
         val result = repo.backendInfo()
 
         assertIs<AppResult.Success<*>>(result)
-        assertEquals(listOf("Bearer expired", "Bearer fresh"), seen)
+        assertEquals(listOf<String?>("Bearer expired", "Bearer fresh"), seen)
         assertEquals(listOf(false, true), tokens.requests)
     }
 

@@ -1,0 +1,2 @@
+# False positive: the local-only default metrics token in a docs example (removed later).
+7ee7250a8a63ab60161e58d7f0300e450910dbe0:docs/phases/phase-8.md:curl-auth-header:72

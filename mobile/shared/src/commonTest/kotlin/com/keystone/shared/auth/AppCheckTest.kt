@@ -73,7 +73,7 @@ class AppCheckTest {
 
         SystemRepositoryImpl(KeystoneApi(client, "http://test")).backendInfo()
 
-        assertEquals(listOf("Bearer old" to "ac", "Bearer new" to "ac"), seen)
+        assertEquals(listOf<Pair<String?, String?>>("Bearer old" to "ac", "Bearer new" to "ac"), seen)
     }
 
     @Test

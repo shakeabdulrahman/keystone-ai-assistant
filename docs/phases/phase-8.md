@@ -71,7 +71,7 @@ Request ─▶ RequestContext (request ID, access log, metrics by route template
 2. **Limits:** send 6 quick messages. The 6th shows "You're going a bit fast. Try again in N seconds".
    `curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:8000/v1/chat -H 'content-type: application/json' -d @big.json` with a body over 64 KB gives `413`.
 3. **Headers:** `curl -I localhost:8000/healthz` shows `cache-control: no-store`, `x-frame-options: DENY` and the CSP.
-4. **Dashboard:** `docker compose --profile observability up -d`, open http://localhost:3000 and chat for a minute: turns, time to first output, tool calls and latency fill in. Raw data: `curl -H 'Authorization: Bearer local-dev-metrics-token' localhost:8000/metrics`.
+4. **Dashboard:** `docker compose --profile observability up -d`, open http://localhost:3000 and chat for a minute: turns, time to first output, tool calls and latency fill in. Raw data: `curl -H "Authorization: Bearer $METRICS_TOKEN" localhost:8000/metrics` (locally the token is the default in `docker-compose.yml`).
 5. **Android:** sync Gradle (new: Firebase App Check). Run the debug app and copy the debug secret from Logcat (`DebugAppCheckProvider`) into Firebase → App Check → Manage debug tokens. Start the backend with `APP_CHECK_MODE=monitor` and `FIREBASE_PROJECT_NUMBER=…`; the log shows no more `app_check_failed`. Then try `enforce`.
 6. **Cloud:** follow `docs/deployment.md`, then `python3 scripts/smoke_test.py https://<your-service>.onrender.com`.
 7. **Release build:** set `keystone.releaseApiBaseUrl` and the signing keys in `mobile/local.properties`, then `./gradlew :androidApp:assembleRelease`.

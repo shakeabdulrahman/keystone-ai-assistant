@@ -46,7 +46,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(keystone_chat_turns_total[5m])) * 60"
+          "expr": "(sum(rate(keystone_chat_turns_total[5m])) or vector(0)) * 60"
         }
       ]
     },
@@ -120,7 +120,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(keystone_http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(keystone_http_requests_total[5m])), 1e-9)"
+          "expr": "(sum(rate(keystone_http_requests_total{status=~\"5..\"}[5m])) or vector(0)) / clamp_min(sum(rate(keystone_http_requests_total[5m])), 1e-9)"
         }
       ]
     },
@@ -157,7 +157,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(keystone_rag_sources_total{kind=\"cited\"}[1h])) / clamp_min(sum(rate(keystone_rag_sources_total{kind=\"retrieved\"}[1h])), 1e-9)"
+          "expr": "(sum(rate(keystone_rag_sources_total{kind=\"cited\"}[1h])) or vector(0)) / clamp_min(sum(rate(keystone_rag_sources_total{kind=\"retrieved\"}[1h])) or vector(0), 1e-9)"
         }
       ]
     },
