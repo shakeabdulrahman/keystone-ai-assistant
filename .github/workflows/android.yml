@@ -30,7 +30,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       # google-services.json is kept out of git. CI only builds and runs unit tests (no real
       # sign-in), so a placeholder with the right shape is enough. For signed release builds,
