@@ -1,0 +1,27 @@
+name: Dependency audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"   # weekly: new advisories appear for code that didn't change
+
+permissions:
+  contents: read
+
+jobs:
+  python-dependencies:
+    name: Python dependency audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Audit locked dependencies against the PyPI/OSV advisory database
+        run: |
+          uv export --frozen --no-dev --no-hashes --no-emit-project -o /tmp/requirements.txt
+          uvx pip-audit -r /tmp/requirements.txt --disable-pip --no-deps --strict
+

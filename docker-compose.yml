@@ -26,18 +26,48 @@ services:
       # Ollama runs on your Mac, outside Docker. host.docker.internal is the Mac as seen
       # from inside a container (Docker Desktop provides it).
       OLLAMA_BASE_URL: http://host.docker.internal:11434
+      # Local-only metrics token (Prometheus below uses the same). Override in .env.
+      METRICS_TOKEN: ${METRICS_TOKEN:-local-dev-metrics-token}
     # Apply migrations, load the policy documents (skipped if unchanged), start the server.
     # If loading fails (e.g. the embedding model isn't pulled), the server still starts;
     # policy questions then get "couldn't search the policies" until it's fixed.
-    command: >
-      sh -c "alembic upgrade head &&
-      (python -m app.rag.ingest || echo 'Knowledge base NOT loaded - see the error above') &&
-      uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    # start.sh: migrate → load the knowledge base → serve (same as the cloud deployment)
+    # Secrets (e.g. the Firebase service-account key for push) are mounted read-only from
+    # backend/secrets/, which git ignores. Point FCM_SERVICE_ACCOUNT_FILE at the file in .env.
+    volumes:
+      - ./backend/secrets:/run/secrets/keystone:ro
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
+
+  # --- Monitoring (optional): docker compose --profile observability up -------------
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:11.3.0
+    environment:
+      # Local only: open without a login, read-only for anonymous viewers.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/keystone.json
+    volumes:
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
 
 volumes:
   pgdata:

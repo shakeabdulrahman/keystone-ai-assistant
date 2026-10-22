@@ -50,6 +50,15 @@ from app.ai.llm.types import (
 )
 from app.ai.prompts import SYSTEM_PROMPT_VERSION, system_prompt
 from app.ai.tools.registry import ToolContext, ToolExecution, ToolRegistry
+from app.core.metrics import (
+    ACTIONS,
+    AGENT_STEPS,
+    CHAT_DURATION,
+    CHAT_TTFT,
+    CHAT_TURNS,
+    LLM_TOKENS,
+    RAG_SOURCES,
+)
 from app.integrations.hris import HrisClient
 from app.rag.citations import Citation, SourceBook
 from app.rag.retriever import Retriever
@@ -337,6 +346,17 @@ class ChatService:
                     "output_tokens": usage.output_tokens,
                 },
             )
+            CHAT_TURNS.labels(status, turn.input_mode).inc()
+            CHAT_DURATION.observe(duration_ms / 1000)
+            if first_output_ms is not None:
+                CHAT_TTFT.observe(first_output_ms / 1000)
+            AGENT_STEPS.observe(steps)
+            LLM_TOKENS.labels("input").inc(usage.input_tokens)
+            LLM_TOKENS.labels("output").inc(usage.output_tokens)
+            RAG_SOURCES.labels("retrieved").inc(len(sources))
+            RAG_SOURCES.labels("cited").inc(len(citations))
+            for action in proposed:
+                ACTIONS.labels(action.tool_name, "proposed").inc()
             if status == "complete" and turn.is_first_exchange and self._titles is not None:
                 self._titles.schedule(
                     turn.conversation_id, turn.history[-1].content, "".join(parts)

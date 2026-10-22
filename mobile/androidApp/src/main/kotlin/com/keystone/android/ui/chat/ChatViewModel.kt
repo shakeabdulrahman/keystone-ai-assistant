@@ -79,6 +79,12 @@ class ChatViewModel @Inject constructor(
 
     init {
         conversationId?.let(::loadHistory)
+        // A question handed over from the home screen is asked once (not again on rotation).
+        val prompt = savedStateHandle.get<String>(PROMPT_ARG)
+        if (!prompt.isNullOrBlank() && savedStateHandle.get<Boolean>(PROMPT_SENT_KEY) != true) {
+            savedStateHandle[PROMPT_SENT_KEY] = true
+            send(prompt, InputMode.Text)
+        }
         viewModelScope.launch {
             speechOutput.speaking.collect { speaking -> updateVoice { it.copy(speaking = speaking) } }
         }
@@ -361,6 +367,8 @@ class ChatViewModel @Inject constructor(
 
         /** Matches the property name in ChatDestination (type-safe navigation argument). */
         const val CONVERSATION_ID_ARG = "conversationId"
+        const val PROMPT_ARG = "prompt"
+        private const val PROMPT_SENT_KEY = "promptSent"
     }
 }
 

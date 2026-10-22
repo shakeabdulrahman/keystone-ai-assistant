@@ -15,8 +15,11 @@ from app.ai.tools.hr_tools import build_hr_registry
 from app.api.deps import get_health_checker
 from app.core.auth import DevTokenVerifier
 from app.core.config import Settings
+from app.integrations.demo_workflow import DemoWorkflow
 from app.integrations.hris import DemoHrisClient
 from app.main import create_app
+from app.notifications.push import LogPushSender
+from app.notifications.service import NotificationService
 from app.rag.embeddings import HashingEmbedder
 from app.rag.ingest import ingest
 from app.rag.retriever import Retriever
@@ -24,11 +27,13 @@ from app.rag.store import InMemoryKnowledgeStore
 from app.repositories.memory import (
     InMemoryActionRepository,
     InMemoryConversationRepository,
+    InMemoryDeviceRepository,
     InMemoryToolAuditRepository,
     InMemoryUserRepository,
 )
 from app.services.actions import ActionService
 from app.services.chat_service import AgentTools, ChatService
+from app.services.home import HomeService
 from app.services.titles import TitleGenerator
 
 
@@ -56,6 +61,9 @@ class Harness:
     knowledge: InMemoryKnowledgeStore
     actions: InMemoryActionRepository
     hris: DemoHrisClient
+    devices: InMemoryDeviceRepository
+    push: LogPushSender
+    workflow: DemoWorkflow
 
 
 KNOWLEDGE_DIR = Path(__file__).parent.parent / "knowledge"
@@ -84,6 +92,7 @@ def build_test_app(
     max_steps: int = 4,
     retriever: Retriever | None = None,
     clock: Callable[[], datetime] = lambda: NOW,
+    workflow_delay_s: float = 0.0,
 ) -> Harness:
     """The real app, wired to in-memory repositories, dev auth, demo HR data and a fake model."""
     provider = provider or FakeLLMProvider("Hello from Keystone", delay_s=0)
@@ -99,7 +108,14 @@ def build_test_app(
     app.state.knowledge_store = knowledge
     hris, registry = DemoHrisClient(today=TODAY), build_hr_registry()
     actions = InMemoryActionRepository()
-    app.state.action_service = ActionService(actions, registry, hris, clock=clock)
+    devices, push = InMemoryDeviceRepository(), LogPushSender()
+    notifications = NotificationService(hris, devices, push)
+    workflow = DemoWorkflow(hris, notifications, delay_s=workflow_delay_s)
+    app.state.devices = devices
+    app.state.action_service = ActionService(
+        actions, registry, hris, clock=clock, listeners=[workflow.on_action_executed]
+    )
+    app.state.home_service = HomeService(hris, actions, clock=clock)
     app.state.chat_service = ChatService(
         provider,
         conversations,
@@ -117,7 +133,18 @@ def build_test_app(
         clock=clock,
     )
     return Harness(
-        app, provider, users, conversations, title_generator, audit, knowledge, actions, hris
+        app,
+        provider,
+        users,
+        conversations,
+        title_generator,
+        audit,
+        knowledge,
+        actions,
+        hris,
+        devices,
+        push,
+        workflow,
     )
 
 

@@ -16,6 +16,7 @@ dependencies = [
     "google-auth>=2.30",
     "cryptography>=43",
     "pgvector>=0.3",
+    "prometheus-client>=0.20",
 ]
 
 [dependency-groups]

@@ -31,6 +31,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.keystone.android.R
 import com.keystone.android.ui.chat.ActionUi
+import com.keystone.android.ui.common.userMessage
 import com.keystone.designsystem.component.StatusPill
 import com.keystone.designsystem.component.StatusTone
 import com.keystone.designsystem.theme.KeystoneTheme
@@ -109,7 +110,12 @@ private fun Outcome(item: ActionUi, status: Status, onConfirm: () -> Unit, onCan
         Status.Pending -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item.error?.let {
                 Text(
-                    if (it == AppError.Network) stringResource(R.string.action_error_network) else stringResource(R.string.action_error_other),
+                    when (it) {
+                        AppError.Network -> stringResource(R.string.action_error_network)
+                        // Rate limit / unverified app: say why, rather than "didn't go through".
+                        is AppError.Http -> if (it.status in setOf(429, 403, 503)) it.userMessage() else stringResource(R.string.action_error_other)
+                        else -> stringResource(R.string.action_error_other)
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = announce,

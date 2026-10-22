@@ -6,6 +6,7 @@ import com.keystone.android.auth.AuthError
 import com.keystone.android.auth.AuthResult
 import com.keystone.android.auth.AuthService
 import com.keystone.shared.domain.repository.ConversationRepository
+import com.keystone.shared.domain.repository.HomeRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,6 +33,7 @@ const val MIN_PASSWORD_LENGTH = 8
 class SignInViewModel @Inject constructor(
     private val auth: AuthService,
     private val conversations: ConversationRepository,
+    private val home: HomeRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SignInUiState())
@@ -68,6 +70,7 @@ class SignInViewModel @Inject constructor(
         viewModelScope.launch {
             // Never show one user's cached history to another user on a shared device.
             conversations.clearCache()
+            home.clearCache() // a previous user's dashboard must never show for this one
             val result = when (state.mode) {
                 SignInUiState.Mode.SignIn -> auth.signIn(email, state.password)
                 SignInUiState.Mode.CreateAccount -> auth.createAccount(email, state.password)

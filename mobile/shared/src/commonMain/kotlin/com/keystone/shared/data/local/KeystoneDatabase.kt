@@ -9,15 +9,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 
 /**
- * On-device cache of the user's conversation history.
+ * On-device cache of the user's conversation history and home dashboard.
  * It's a cache, not the source of truth: the server is. Version bumps that aren't worth a
  * migration can simply drop and refetch (see [buildKeystoneDatabase]).
  */
-@Database(entities = [ConversationEntity::class, MessageEntity::class], version = 2)
+@Database(entities = [ConversationEntity::class, MessageEntity::class, CachedJsonEntity::class], version = 3)
 @ConstructedBy(KeystoneDatabaseConstructor::class)
 abstract class KeystoneDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
     abstract fun messageDao(): MessageDao
+    abstract fun cachedJsonDao(): CachedJsonDao
 }
 
 // Room's KSP processor generates the `actual` for every platform.

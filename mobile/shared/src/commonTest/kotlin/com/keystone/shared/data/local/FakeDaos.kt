@@ -52,3 +52,18 @@ class FakeMessageDao : MessageDao() {
         rows.value = emptyMap()
     }
 }
+
+class FakeCachedJsonDao : CachedJsonDao() {
+    val rows = MutableStateFlow<Map<String, CachedJsonEntity>>(emptyMap())
+
+    override fun observe(key: String): Flow<CachedJsonEntity?> =
+        rows.map { it[key] }
+
+    override suspend fun put(entity: CachedJsonEntity) {
+        rows.value = rows.value + (entity.key to entity)
+    }
+
+    override suspend fun deleteAll() {
+        rows.value = emptyMap()
+    }
+}

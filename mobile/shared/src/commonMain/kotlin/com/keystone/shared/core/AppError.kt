@@ -8,8 +8,15 @@ sealed interface AppError {
     /** No connection, DNS failure, timeout, or the connection dropped mid-stream. */
     data object Network : AppError
 
-    /** The server answered with an error status. `code` is the backend's stable problem code. */
-    data class Http(val status: Int, val code: String? = null) : AppError
+    /**
+     * The server answered with an error status. `code` is the backend's stable problem code;
+     * [retryAfterSeconds] comes from the `Retry-After` header (rate limits, brief outages).
+     */
+    data class Http(
+        val status: Int,
+        val code: String? = null,
+        val retryAfterSeconds: Int? = null,
+    ) : AppError
 
     /** The AI assistant failed while answering (reported inside the stream). */
     data class Assistant(val code: String, val retryable: Boolean) : AppError

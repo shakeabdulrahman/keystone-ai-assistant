@@ -4,6 +4,7 @@ import com.keystone.shared.core.AppError
 import com.keystone.shared.core.AppResult
 import io.ktor.client.call.body
 import io.ktor.client.plugins.ResponseException
+import io.ktor.http.HttpHeaders
 import io.ktor.serialization.ContentConvertException
 import kotlinx.coroutines.CancellationException
 import kotlinx.io.IOException
@@ -30,7 +31,9 @@ internal suspend fun Throwable.toAppError(): AppError = when (this) {
     is ResponseException -> {
         // Streaming responses aren't buffered, so the problem body may be unreadable: that's fine.
         val code = runCatching { response.body<ProblemDto>().code }.getOrNull()
-        AppError.Http(response.status.value, code)
+        // Headers are always available, even when a streaming body isn't.
+        val retryAfter = response.headers[HttpHeaders.RetryAfter]?.trim()?.toIntOrNull()?.takeIf { it >= 0 }
+        AppError.Http(response.status.value, code, retryAfter)
     }
     is IOException -> AppError.Network
     is ContentConvertException, is SerializationException -> AppError.InvalidResponse

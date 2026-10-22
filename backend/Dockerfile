@@ -6,7 +6,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+# Pinned (not :latest) so builds are reproducible; Dependabot proposes updates.
+COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /usr/local/bin/uv
 WORKDIR /app
 
 # Install dependencies first so this layer is cached between code changes.
@@ -17,6 +18,7 @@ COPY alembic.ini ./
 COPY migrations ./migrations
 COPY app ./app
 COPY knowledge ./knowledge
+COPY --chmod=755 start.sh ./
 
 # Run as an unprivileged user.
 RUN useradd --create-home --uid 10001 keystone
@@ -24,4 +26,6 @@ USER keystone
 
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=60s \
+  CMD python -c "import urllib.request,os; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PORT\",\"8000\")}/healthz')" || exit 1
+CMD ["./start.sh"]

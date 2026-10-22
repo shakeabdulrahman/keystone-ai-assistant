@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Keystone</string>
     <string name="home_greeting_title">Your AI HR assistant</string>
-    <string name="home_greeting_body">Ask about leave, HR requests, onboarding and company policies. Tap below to start a conversation.</string>
+    <string name="home_greeting_body">Here’s what needs your attention. Ask Keystone about anything else.</string>
     <string name="home_backend_title">Backend</string>
     <string name="status_checking">Checking connection…</string>
     <string name="status_connected">Connected</string>
@@ -13,6 +13,15 @@
     <string name="error_server">The server returned an error (%1$d).</string>
     <string name="error_invalid_response">The server sent an unexpected response. The app may need an update.</string>
     <string name="error_unknown">Something went wrong. Please try again.</string>
+    <string name="error_rate_limited">You\'re going a bit fast. Please wait a moment and try again.</string>
+    <plurals name="error_rate_limited_seconds">
+        <item quantity="one">You\'re going a bit fast. Try again in %1$d second.</item>
+        <item quantity="other">You\'re going a bit fast. Try again in %1$d seconds.</item>
+    </plurals>
+    <string name="error_app_not_verified">This copy of Keystone couldn\'t be verified. Install it from the official source and try again.</string>
+    <string name="error_auth_unavailable">We couldn\'t check your sign-in just now. Try again in a moment.</string>
+    <string name="error_signed_out">Your session has ended. Please sign in again.</string>
+    <string name="error_too_large">That message is too long to send.</string>
     <string name="error_assistant_unavailable">The assistant is unavailable right now. Please try again in a moment.</string>
 
     <string name="home_open_chat">Ask Keystone</string>
@@ -147,4 +156,25 @@
     <string name="voice_error_busy">The microphone is busy. Try again in a moment.</string>
     <string name="voice_error_unavailable">Speech recognition isn’t available on this device.</string>
     <string name="voice_error_other">Voice input didn’t work. Try again or type your question.</string>
+    <!-- Home dashboard and notifications (Phase 7) -->
+    <string name="home_good_morning">Good morning</string>
+    <string name="home_good_afternoon">Good afternoon</string>
+    <string name="home_good_evening">Good evening</string>
+    <string name="home_greeting_named">%1$s, %2$s</string>
+    <string name="home_attention_title">Needs your attention</string>
+    <string name="home_caught_up">You’re all caught up.</string>
+    <string name="home_urgent">Urgent</string>
+    <string name="home_leave_title">Leave left this year</string>
+    <string name="home_leave_of">of %1$s days</string>
+    <string name="home_upcoming_title">Coming up</string>
+    <string name="home_upcoming_detail">%1$s · %2$s</string>
+    <string name="home_suggestions_title">Ask Keystone</string>
+    <string name="home_offline">Offline. Showing what was loaded %1$s.</string>
+    <string name="home_loading">Loading your dashboard</string>
+    <string name="home_notifications_title">Get notified about your requests</string>
+    <string name="home_notifications_body">Keystone can tell you when your leave is approved or an HR request changes. Notifications never show the details, only that there’s an update.</string>
+    <string name="home_notifications_enable">Turn on</string>
+    <string name="home_notifications_later">Not now</string>
+    <string name="notification_channel_hr_updates">HR updates</string>
+    <string name="notification_channel_hr_updates_description">Leave decisions and changes to your HR requests</string>
 </resources>

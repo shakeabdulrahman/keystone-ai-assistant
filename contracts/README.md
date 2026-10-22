@@ -19,6 +19,9 @@ Local development (`AUTH_MODE=dev`, refused in production): tokens look like `de
 | GET | `/v1/conversations?limit=20&cursor=` | Newest first. `{items: [{id, title, created_at, updated_at, last_message_at}], next_cursor}` |
 | GET | `/v1/conversations/{id}` | One conversation (`404` if missing or not yours) |
 | GET | `/v1/conversations/{id}/messages?limit=50&cursor=` | `{items: [{id, role, content, status, created_at, parts}], next_cursor}`. Items are oldest first; `next_cursor` loads **older** messages. `parts` lists the answer's tool results (`type: "tool_result"`, `call_id`, `tool`, `status`, `ui`, `data`) and its sources (`type: "citations"`, `items` as in the `citations` event), so history shows the same cards and sources. Clients skip part types they don't know |
+| GET | `/v1/home` | The dashboard (shape below) |
+| POST | `/v1/devices` | `{token, platform: "android"/"ios"}` registers this phone for push (`204`, idempotent). A token moves to whichever account registers it last |
+| POST | `/v1/devices/unregister` | `{token}`, on sign-out (`204`) |
 | GET | `/v1/actions/{id}` | An action the assistant proposed (shape below). `404` if missing or not yours |
 | POST | `/v1/actions/{id}/confirm` | Runs it. **Idempotent**: confirming an executed action returns the same result. `200` with `status: executed` (and `result`) or `status: failed` (and a user-facing `error.message`; nothing changed). `409` with `code` `action_expired`, `action_cancelled`, `action_in_progress`, `action_done` or `action_failed` when it can't run |
 | POST | `/v1/actions/{id}/cancel` | `200` with `status: cancelled` (repeatable). `409` if already executed |
@@ -104,6 +107,41 @@ Action shape (`GET`, `confirm`, `cancel`):
 ```
 
 `status`: `pending` → `executing` → `executed` | `failed`; or `cancelled`; or `expired` (15 minutes after the proposal). In `GET /messages`, a stored answer's `parts` contain `{"type": "confirmation", …the event fields…, "status", "result", "error"}`, which reflect the **current** state.
+
+## Home (Phase 7)
+
+```json
+{"generated_at": "2026-10-15T09:00:00+00:00", "first_name": "Aisha",
+ "leave": [{"type": "Annual", "remaining": 14, "entitled": 20}],
+ "attention": [{"id": "task-T-301", "kind": "overdue_task", "severity": "high",
+                "title": "Upload ID proof", "detail": "Overdue by 2 days",
+                "action": {"type": "ask", "prompt": "Help me with my task T-301: Upload ID proof"}}],
+ "upcoming": [{"id": "A-50", "title": "1:1 with your manager", "with": "Your manager",
+               "start": "2026-10-22T11:00:00+00:00", "location": "Teams"}],
+ "counts": {"open_hr_requests": 2, "pending_leave_requests": 1, "unread_notifications": 3},
+ "suggestions": ["Which of my tasks are overdue?"]}
+```
+
+`attention` is ordered most urgent first. `kind`: `pending_action`, `overdue_task`, `task_due_soon`, `leave_pending` or `unread_notifications` (ignore unknown kinds). `action.type`:
+- `ask`: open a new chat and send `prompt`.
+- `open_conversation`: open `conversation_id`, where the confirmation card `action_id` is waiting.
+
+## Push notifications (Phase 7)
+
+FCM messages carry a generic `notification` (title "Keystone", e.g. "Your leave request has an update.") and `data` `{kind: "leave" | "hr_request", ref}`. **No HR details are ever sent in a push**: they pass through Google's servers and show on the lock screen. Opening the app shows the details (home and in-app notifications). Android channel: `hr_updates`.
+
+## Protection (Phase 8)
+
+Every request may carry `X-Firebase-AppCheck: <token>` (Firebase App Check). Problem codes the apps must explain:
+
+| Status | `code` | Meaning | App behaviour |
+| --- | --- | --- | --- |
+| `429` | `rate_limited` | Too many requests (per IP, per user, chat, actions). `Retry-After` header and `retry_after_s` give the wait | "Try again in N seconds"; retryable |
+| `403` | `app_check_failed` | `APP_CHECK_MODE=enforce` and the app couldn't prove it's genuine | Explain; not retryable |
+| `503` | `auth_unavailable` | The server couldn't fetch Google's signing keys | Retry soon; **don't** sign the user out |
+| `413` | `payload_too_large` | Body over 64 KB | Not retryable |
+
+All API responses carry `Cache-Control: no-store` and standard security headers.
 
 ## Fixtures
 

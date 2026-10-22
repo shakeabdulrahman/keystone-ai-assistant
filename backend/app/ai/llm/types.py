@@ -19,6 +19,9 @@ class ToolCall:
     id: str
     name: str
     arguments: dict[str, Any]
+    # Opaque provider data that must be sent back with the call in the next request
+    # (e.g. Gemini's "thought signature"). Business logic never reads it.
+    signature: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

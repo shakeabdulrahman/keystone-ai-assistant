@@ -9,9 +9,12 @@ data object HomeDestination
 @Serializable
 data object ConversationsDestination
 
-/** Opens a new chat, or an existing one when [conversationId] is set. */
+/**
+ * Opens a new chat, or an existing one when [conversationId] is set. [prompt] is asked
+ * straight away (from a home-screen item or suggestion).
+ */
 @Serializable
-data class ChatDestination(val conversationId: String? = null)
+data class ChatDestination(val conversationId: String? = null, val prompt: String? = null)
 
 /** A policy document, scrolled to [sectionIndex] (the cited section), or the top when -1. */
 @Serializable

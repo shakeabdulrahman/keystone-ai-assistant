@@ -38,6 +38,11 @@ class InvalidTokenError(Exception):
     """Token missing, malformed, expired or not issued for this project. Message is internal."""
 
 
+class VerificationUnavailableError(Exception):
+    """Google's signing keys couldn't be fetched and none are cached. Not the caller's
+    fault: answered with 503 (try again), never 401 (which would sign the user out)."""
+
+
 class TokenVerifier(Protocol):
     async def verify(self, token: str | None) -> Principal: ...
 
@@ -60,12 +65,28 @@ class GoogleCertificateSource:
             return self._certs
         async with self._lock:  # one refresh at a time, even under load
             if time.monotonic() >= self._expires_at:
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    response = await client.get(self._url)
-                    response.raise_for_status()
-                self._certs = response.json()
-                self._expires_at = time.monotonic() + _max_age(response.headers)
+                try:
+                    async with httpx.AsyncClient(timeout=5.0) as client:
+                        response = await client.get(self._url)
+                        response.raise_for_status()
+                    self._certs = response.json()
+                    self._expires_at = time.monotonic() + _max_age(response.headers)
+                except (httpx.HTTPError, ValueError) as exc:
+                    self._certs, self._expires_at = stale_or_raise(self._certs, exc, "firebase")
         return self._certs
+
+
+def stale_or_raise(
+    cached: dict[str, str], exc: Exception, source: str
+) -> tuple[dict[str, str], float]:
+    """A key refresh failed. Keys rotate slowly, so keep using the cached ones for another
+    minute (stale-if-error) rather than failing every request; with nothing cached, fail."""
+    logger.warning(
+        "signing_keys_refresh_failed", extra={"source": source, "error_type": type(exc).__name__}
+    )
+    if not cached:
+        raise VerificationUnavailableError(f"{source} signing keys unavailable") from exc
+    return cached, time.monotonic() + 60.0
 
 
 def _max_age(headers: httpx.Headers) -> float:

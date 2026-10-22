@@ -114,6 +114,15 @@ class HrisClient(Protocol):
     ) -> HrRequest: ...
     async def complete_task(self, user_id: uuid.UUID, task_id: str) -> Task: ...
 
+    # --- Workflow events (in a real HRIS these happen on the HR side, e.g. a manager) ---
+    async def decide_leave(
+        self, user_id: uuid.UUID, request_id: str, decision: str
+    ) -> LeaveRequest: ...
+    async def set_hr_request_status(
+        self, user_id: uuid.UUID, request_id: str, status: str
+    ) -> HrRequest: ...
+    async def add_notification(self, user_id: uuid.UUID, title: str, body: str) -> Notification: ...
+
 
 _FIRST = ["Aisha", "Rahul", "Maria", "Chen", "Fatima", "Arjun", "Sofia", "Daniel", "Priya", "Omar"]
 _LAST = ["Khan", "Sharma", "Garcia", "Wei", "Ali", "Nair", "Rossi", "Smith", "Iyer", "Hassan"]
@@ -137,6 +146,7 @@ class DemoHrisClient:
         self._cancelled_leave: dict[uuid.UUID, set[str]] = {}
         self._new_hr: dict[uuid.UUID, list[HrRequest]] = {}
         self._done_tasks: dict[uuid.UUID, set[str]] = {}
+        self._new_notifications: dict[uuid.UUID, list[Notification]] = {}
 
     def _now(self) -> date:
         return self._today or datetime.now(UTC).date()
@@ -166,10 +176,10 @@ class DemoHrisClient:
             LeaveBalance("Sick", 10, rng.randint(0, 4)),
             LeaveBalance("Casual", 6, rng.randint(0, 5)),
         ]
-        # New requests use days up; cancelled ones give them back.
+        # New requests use days up; cancelled or rejected ones give them back.
         delta: dict[str, float] = {}
         for r in self._new_leave.get(user_id, []):
-            if r.status != "cancelled":
+            if r.status in ("pending", "approved"):
                 delta[r.leave_type] = delta.get(r.leave_type, 0) + r.days
         cancelled = self._cancelled_leave.get(user_id, set())
         for r in self._generated_leave(user_id):
@@ -289,7 +299,7 @@ class DemoHrisClient:
             ("Training due soon", "Information security training is due in 3 days."),
             ("Payslip available", "Your payslip for last month is ready to view."),
         ]
-        return [
+        generated = [
             Notification(
                 id=f"N-{900 + i}",
                 title=title,
@@ -299,6 +309,7 @@ class DemoHrisClient:
             )
             for i, (title, body) in enumerate(catalog)
         ]
+        return self._new_notifications.get(user_id, [])[::-1] + generated
 
     # --- Writes ------------------------------------------------------------------------
 
@@ -350,3 +361,39 @@ class DemoHrisClient:
                 self._done_tasks.setdefault(user_id, set()).add(task_id)
                 return replace(t, status="done")
         raise HrisError(f"task {task_id} not found")
+
+    # --- Workflow events ------------------------------------------------------------------
+
+    async def decide_leave(
+        self, user_id: uuid.UUID, request_id: str, decision: str
+    ) -> LeaveRequest:
+        mine = self._new_leave.get(user_id, [])
+        for i, r in enumerate(mine):
+            if r.id == request_id:
+                if r.status != "pending":
+                    raise HrisError(f"{request_id} is {r.status}")
+                mine[i] = replace(r, status=decision)  # rejected days return to the balance
+                return mine[i]
+        raise HrisError(f"leave request {request_id} not found")
+
+    async def set_hr_request_status(
+        self, user_id: uuid.UUID, request_id: str, status: str
+    ) -> HrRequest:
+        mine = self._new_hr.get(user_id, [])
+        for i, r in enumerate(mine):
+            if r.id == request_id:
+                mine[i] = replace(r, status=status, updated_on=self._now())
+                return mine[i]
+        raise HrisError(f"HR request {request_id} not found")
+
+    async def add_notification(self, user_id: uuid.UUID, title: str, body: str) -> Notification:
+        mine = self._new_notifications.setdefault(user_id, [])
+        note = Notification(
+            id=f"N-{950 + len(mine)}",
+            title=title,
+            body=body,
+            created=datetime.now(UTC),
+            read=False,
+        )
+        mine.append(note)
+        return note

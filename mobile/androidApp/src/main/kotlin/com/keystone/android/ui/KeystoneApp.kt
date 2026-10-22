@@ -47,6 +47,8 @@ private fun SignedInApp(email: String?, onSignOut: () -> Unit) {
             HomeRoute(
                 userEmail = email,
                 onOpenChat = { navController.navigate(ChatDestination()) },
+                onAsk = { prompt -> navController.navigate(ChatDestination(prompt = prompt)) },
+                onOpenConversation = { id -> navController.navigate(ChatDestination(conversationId = id)) },
                 onOpenHistory = { navController.navigate(ConversationsDestination) },
                 onSignOut = onSignOut,
             )

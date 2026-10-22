@@ -22,6 +22,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.ai.tools.registry import ToolContext, ToolExecution, ToolRegistry, ToolRejected
+from app.core.metrics import ACTIONS
 from app.integrations.hris import HrisClient
 from app.repositories.base import ActionRecord, ActionRepository, UserRecord
 
@@ -51,12 +52,15 @@ class ActionService:
         *,
         ttl: timedelta = ACTION_TTL,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        listeners: list[Callable[[UserRecord, ActionRecord], None]] | None = None,
     ) -> None:
         self._actions = actions
         self._registry = registry
         self._hris = hris
         self._ttl = ttl
         self._clock = clock
+        # Told about every executed action (e.g. the demo HR workflow). Must not block.
+        self._listeners = listeners or []
 
     @property
     def repository(self) -> ActionRepository:
@@ -120,6 +124,7 @@ class ActionService:
                 user.id, action_id, "pending", "cancelled", self._clock()
             )
             if cancelled is not None:
+                ACTIONS.labels(cancelled.tool_name, "cancelled").inc()
                 logger.info("action_cancelled", extra={"action_id": str(action_id)})
                 return cancelled
             action = await self.get(user, action_id)
@@ -132,7 +137,13 @@ class ActionService:
         try:
             result = await self._registry.run_confirmed(action.tool_name, action.arguments, ctx)
             status = "executed"
-            return await self._actions.finish(action.id, "executed", result=_clean(result))
+            done = await self._actions.finish(action.id, "executed", result=_clean(result))
+            for listener in self._listeners:
+                try:
+                    listener(user, done)
+                except Exception:
+                    logger.exception("action_listener_failed")
+            return done
         except ToolRejected as exc:
             # Something changed since the proposal (e.g. the balance). Nothing happened.
             return await self._actions.finish(
@@ -144,6 +155,7 @@ class ActionService:
                 action.id, "failed", error_code="action_failed", error_message=_UNCERTAIN
             )
         finally:
+            ACTIONS.labels(action.tool_name, status).inc()
             logger.info(
                 "action_confirmed",
                 extra={
@@ -160,6 +172,7 @@ class ActionService:
                 user.id, action.id, "pending", "expired", self._clock()
             )
             if expired is not None:
+                ACTIONS.labels(expired.tool_name, "expired").inc()
                 return expired
             refreshed = await self._actions.get_owned(user.id, action.id)
             return refreshed or action

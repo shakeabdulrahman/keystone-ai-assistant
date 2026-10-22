@@ -677,4 +677,21 @@ class ChatViewModelTest {
         )
         assertFalse(vm.uiState.value.voice.micAvailable)
     }
+
+    @Test
+    fun `a question from the home screen is asked once`() = runTest(mainDispatcherRule.dispatcher) {
+        val repo = FakeChatRepository(reply("c1", "Here you go."))
+        val handle = SavedStateHandle(mapOf(ChatViewModel.PROMPT_ARG to "Which of my tasks are overdue?"))
+        val vm = ChatViewModel(repo, history, actions, mic, speaker, handle, testScheduler.timeSource)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Which of my tasks are overdue?"), repo.calls.map { it.content })
+        assertEquals(2, vm.uiState.value.messages.size)
+
+        // Recreated after rotation with the same saved state: not asked again.
+        val afterRotation = FakeChatRepository()
+        ChatViewModel(afterRotation, history, actions, mic, speaker, handle, testScheduler.timeSource)
+        advanceUntilIdle()
+        assertTrue(afterRotation.calls.isEmpty())
+    }
 }

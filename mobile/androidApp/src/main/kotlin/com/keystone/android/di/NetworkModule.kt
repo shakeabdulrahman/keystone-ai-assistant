@@ -1,6 +1,7 @@
 package com.keystone.android.di
 
 import com.keystone.android.BuildConfig
+import com.keystone.shared.auth.AppCheckTokenProvider
 import com.keystone.shared.auth.AuthTokenProvider
 import com.keystone.shared.data.remote.KeystoneApi
 import com.keystone.shared.data.remote.createHttpClient
@@ -28,7 +29,8 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideHttpClient(tokens: AuthTokenProvider): HttpClient = createHttpClient(tokens = tokens)
+    fun provideHttpClient(tokens: AuthTokenProvider, appCheck: AppCheckTokenProvider): HttpClient =
+        createHttpClient(tokens = tokens, appCheck = appCheck)
 
     @Provides
     @Singleton

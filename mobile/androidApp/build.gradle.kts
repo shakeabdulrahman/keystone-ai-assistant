@@ -24,6 +24,20 @@ val debugApiBaseUrl: String = localProperties.getProperty("keystone.apiBaseUrl")
     ?: providers.gradleProperty("keystone.apiBaseUrl").orNull
     ?: "http://10.0.2.2:8000"
 
+/** local.properties first, then an environment variable (CI). Never hard-coded here. */
+fun setting(property: String, env: String): String? =
+    localProperties.getProperty(property)?.takeIf { it.isNotBlank() }
+        ?: System.getenv(env)?.takeIf { it.isNotBlank() }
+
+// Release builds talk to the deployed backend over HTTPS, e.g.
+//   keystone.releaseApiBaseUrl=https://keystone-api.onrender.com
+val releaseApiBaseUrl: String = setting("keystone.releaseApiBaseUrl", "KEYSTONE_RELEASE_API_BASE_URL")
+    ?: "https://api.keystone.invalid"
+
+// Release signing. The keystore and its passwords are secrets: they live outside git
+// (local.properties is ignored, *.jks too) or in CI secrets. See docs/deployment.md.
+val signingStoreFile: String? = setting("keystone.signing.storeFile", "KEYSTONE_SIGNING_STORE_FILE")
+
 android {
     namespace = "com.keystone.android"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -37,6 +51,17 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        signingStoreFile?.let { path ->
+            create("release") {
+                storeFile = file(path)
+                storePassword = setting("keystone.signing.storePassword", "KEYSTONE_SIGNING_STORE_PASSWORD")
+                keyAlias = setting("keystone.signing.keyAlias", "KEYSTONE_SIGNING_KEY_ALIAS")
+                keyPassword = setting("keystone.signing.keyPassword", "KEYSTONE_SIGNING_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
@@ -46,8 +71,10 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Real HTTPS URL is configured at deployment (Phase 8).
-            buildConfigField("String", "API_BASE_URL", "\"https://api.keystone.invalid\"")
+            require(releaseApiBaseUrl.startsWith("https://")) { "Release builds must use an https:// API URL" }
+            buildConfigField("String", "API_BASE_URL", "\"$releaseApiBaseUrl\"")
+            // Without signing settings the release APK is built unsigned (fine for CI checks).
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
 
@@ -92,6 +119,12 @@ dependencies {
 
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
+    implementation(libs.firebase.messaging)
+    // App Check: Play Integrity proves release builds are genuine; the debug provider lets
+    // the emulator and debug builds through with a token registered in the console.
+    implementation(libs.firebase.appcheck)
+    releaseImplementation(libs.firebase.appcheck.playintegrity)
+    debugImplementation(libs.firebase.appcheck.debug)
     implementation(libs.kotlinx.coroutines.play.services)
 
     testImplementation(libs.junit)

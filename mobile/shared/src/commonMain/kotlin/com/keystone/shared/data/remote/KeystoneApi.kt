@@ -4,11 +4,14 @@ import com.keystone.shared.data.remote.dto.ActionDto
 import com.keystone.shared.data.remote.dto.ChatRequestDto
 import com.keystone.shared.data.remote.dto.ConversationDto
 import com.keystone.shared.data.remote.dto.ConversationPageDto
+import com.keystone.shared.data.remote.dto.DeviceDto
 import com.keystone.shared.data.remote.dto.DocumentDto
+import com.keystone.shared.data.remote.dto.HomeDto
 import com.keystone.shared.data.remote.dto.MessagePageDto
 import com.keystone.shared.data.remote.dto.MetaDto
 import com.keystone.shared.data.remote.dto.ProfileDto
 import com.keystone.shared.data.remote.dto.RenameDto
+import com.keystone.shared.data.remote.dto.TokenDto
 import com.keystone.shared.data.remote.sse.SseEvent
 import com.keystone.shared.data.remote.sse.SseEventParser
 import io.ktor.client.HttpClient
@@ -64,6 +67,22 @@ class KeystoneApi(
 
     internal suspend fun deleteConversation(conversationId: String) {
         client.delete("$baseUrl/v1/conversations/$conversationId")
+    }
+
+    internal suspend fun home(): HomeDto = client.get("$baseUrl/v1/home").body()
+
+    internal suspend fun registerDevice(token: String, platform: String) {
+        client.post("$baseUrl/v1/devices") {
+            contentType(ContentType.Application.Json)
+            setBody(DeviceDto(token, platform))
+        }
+    }
+
+    internal suspend fun unregisterDevice(token: String) {
+        client.post("$baseUrl/v1/devices/unregister") {
+            contentType(ContentType.Application.Json)
+            setBody(TokenDto(token))
+        }
     }
 
     internal suspend fun getAction(actionId: String): ActionDto =

@@ -26,6 +26,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from app.ai.llm.types import ToolCall, ToolSpec
+from app.core.metrics import TOOL_CALLS, TOOL_LATENCY
 from app.integrations.hris import HrisClient
 from app.rag.citations import SourceBook
 from app.rag.retriever import Retriever
@@ -142,6 +143,10 @@ class ToolRegistry:
             error: str | None = None,
             pending: dict[str, Any] | None = None,
         ) -> ToolExecution:
+            elapsed = time.perf_counter() - started
+            name = call.name if tool else "unknown"  # model-invented names stay out of labels
+            TOOL_CALLS.labels(name, error or status).inc()
+            TOOL_LATENCY.labels(name).observe(elapsed)
             return ToolExecution(
                 call_id=call.id,
                 tool=call.name,

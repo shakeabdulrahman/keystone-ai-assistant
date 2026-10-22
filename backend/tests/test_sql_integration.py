@@ -255,3 +255,52 @@ async def test_action_claims_are_atomic_on_postgres(db: Database) -> None:
         )
         is None
     )
+
+
+async def test_devices_and_open_actions_on_postgres(db: Database) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.repositories.sql import SqlDeviceRepository
+
+    users = SqlUserRepository(db.session_factory)
+    devices = SqlDeviceRepository(db.session_factory)
+    alice = await users.get_or_create("alice", None, None)
+    bob = await users.get_or_create("bob", None, None)
+    token = "fcm-" + "x" * 60
+
+    await devices.register(alice.id, token, "android")
+    await devices.register(alice.id, token, "android")  # idempotent
+    assert await devices.tokens_for(alice.id) == [token]
+    await devices.register(bob.id, token, "android")  # same phone, new account
+    assert await devices.tokens_for(alice.id) == []
+    assert await devices.tokens_for(bob.id) == [token]
+    await devices.unregister(alice.id, token)  # not Alice's any more: no effect
+    assert await devices.tokens_for(bob.id) == [token]
+    await devices.delete_tokens([token])
+    assert await devices.tokens_for(bob.id) == []
+
+    conversations = SqlConversationRepository(db.session_factory)
+    actions = SqlActionRepository(db.session_factory)
+    conversation = await conversations.create(alice.id, "Leave")
+    now = datetime.now(UTC)
+
+    def proposal(expires: datetime) -> ActionRecord:
+        return ActionRecord(
+            id=uuid.uuid4(),
+            user_id=alice.id,
+            conversation_id=conversation.id,
+            message_id=uuid.uuid4(),
+            call_id="c1",
+            tool_name="submitLeaveRequest",
+            arguments={},
+            card={"title": "Request annual leave"},
+            status="pending",
+            created_at=now,
+            expires_at=expires,
+        )
+
+    live, stale = proposal(now + timedelta(minutes=10)), proposal(now - timedelta(minutes=1))
+    await actions.create(live)
+    await actions.create(stale)
+    assert [a.id for a in await actions.open_for_user(alice.id, now)] == [live.id]
+    assert await actions.open_for_user(bob.id, now) == []

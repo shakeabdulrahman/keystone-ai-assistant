@@ -32,3 +32,17 @@ def test_settings_read_from_environment(monkeypatch) -> None:  # type: ignore[no
     settings = Settings()
     assert settings.llm_provider == "ollama"
     assert settings.app_env == "staging"
+
+
+def test_hosted_postgres_urls_are_normalised_for_asyncpg() -> None:
+    from app.core.config import Settings, normalise_database_url
+
+    neon = "postgres://u:p@ep-x.eu-central-1.aws.neon.tech/keystone?sslmode=require&channel_binding=require"
+    assert (
+        normalise_database_url(neon)
+        == "postgresql+asyncpg://u:p@ep-x.eu-central-1.aws.neon.tech/keystone?ssl=require"
+    )
+    local = "postgresql+asyncpg://keystone:keystone@localhost:5432/keystone"
+    assert normalise_database_url(local) == local
+    s = Settings(database_url="postgresql://u:p@h/db", _env_file=None)
+    assert s.database_url.get_secret_value() == "postgresql+asyncpg://u:p@h/db"

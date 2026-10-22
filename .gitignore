@@ -34,3 +34,9 @@ captures/
 # iOS
 xcuserdata/
 DerivedData/
+
+# Local secrets (Firebase service-account key for push, ...)
+backend/secrets/*
+!backend/secrets/README.md
+*service-account*.json
+_archive/

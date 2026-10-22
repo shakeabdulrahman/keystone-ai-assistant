@@ -5,6 +5,7 @@ import com.keystone.android.auth.AuthError
 import com.keystone.android.auth.AuthResult
 import com.keystone.android.fakes.FakeAuthService
 import com.keystone.android.fakes.FakeConversationRepository
+import com.keystone.android.fakes.FakeHomeRepository
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -20,7 +21,8 @@ class SignInViewModelTest {
 
     private val auth = FakeAuthService()
     private val conversations = FakeConversationRepository()
-    private val viewModel = SignInViewModel(auth, conversations)
+    private val home = FakeHomeRepository()
+    private val viewModel = SignInViewModel(auth, conversations, home)
 
     @Test
     fun `invalid email is caught before calling Firebase`() = runTest(mainDispatcherRule.dispatcher) {

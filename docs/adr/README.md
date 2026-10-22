@@ -16,3 +16,7 @@ Short records of the decisions that shape Keystone. Each one states the context,
 | [0010](0010-rag-retrieval-design.md) | RAG: search as a tool, hybrid retrieval, server-verified citations |
 | [0011](0011-confirmed-actions.md) | Write actions: model proposes, user confirms, server executes once |
 | [0012](0012-on-device-voice.md) | Voice: on-device speech services, sentence-by-sentence streaming speech |
+| [0013](0013-push-notifications.md) | Push: FCM HTTP v1, generic payloads, explained permission |
+| [0014](0014-abuse-protection.md) | Abuse protection: layered rate limits, App Check, strict HTTP defaults |
+| [0015](0015-observability.md) | Observability: Prometheus metrics with low cardinality, JSON logs |
+| [0016](0016-free-cloud-deployment.md) | Free cloud deployment: Render + Neon + Gemini |

@@ -1,6 +1,8 @@
 package com.keystone.shared.data.remote
 
+import com.keystone.shared.auth.AppCheckTokenProvider
 import com.keystone.shared.auth.AuthTokenProvider
+import com.keystone.shared.auth.installAppCheck
 import com.keystone.shared.auth.installBearerAuth
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
@@ -24,11 +26,13 @@ internal val KeystoneJson = Json {
 /**
  * Builds the single HttpClient used by every API in the app.
  * The engine is injectable so tests can pass a MockEngine.
- * With [tokens], every request is authenticated (see installBearerAuth).
+ * With [tokens], every request is authenticated (see installBearerAuth); with [appCheck],
+ * it also carries an App Check token (see installAppCheck).
  */
 fun createHttpClient(
     engine: HttpClientEngine = platformHttpEngine(),
     tokens: AuthTokenProvider? = null,
+    appCheck: AppCheckTokenProvider? = null,
 ): HttpClient = HttpClient(engine) {
         expectSuccess = true // non-2xx responses throw, and safeApiCall maps them to AppError
         install(ContentNegotiation) {
@@ -42,4 +46,9 @@ fun createHttpClient(
             socketTimeoutMillis = 30_000
         }
         defaultRequest { accept(ContentType.Application.Json) }
-    }.also { client -> tokens?.let(client::installBearerAuth) }
+    }.also { client ->
+        // The first interceptor installed is the outermost. App Check goes first, so its
+        // header is set once and the bearer plugin's 401 retry reuses the same request.
+        appCheck?.let(client::installAppCheck)
+        tokens?.let(client::installBearerAuth)
+    }

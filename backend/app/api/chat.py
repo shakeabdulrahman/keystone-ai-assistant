@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, field_validator
 
 from app.ai.events import SseEncoder
-from app.api.deps import CurrentUser, get_chat_service, get_settings_dep
+from app.api.deps import CurrentUser, get_chat_service, get_settings_dep, limit_chat
 from app.api.streaming import ClosingStreamingResponse, with_heartbeat
 from app.core.config import Settings
 from app.services.chat_service import ChatService, ChatTurn
@@ -36,6 +36,7 @@ class ChatRequest(BaseModel):
 
 @router.post(
     "/chat",
+    dependencies=[Depends(limit_chat)],
     response_class=ClosingStreamingResponse,
     responses={200: {"content": {"text/event-stream": {}}, "description": "SSE stream of events"}},
 )

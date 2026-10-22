@@ -13,7 +13,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models import Conversation, Message, PendingAction, ToolExecution, User
+from app.db.models import Conversation, Device, Message, PendingAction, ToolExecution, User
 from app.repositories.base import (
     ActionRecord,
     ActionStatus,
@@ -381,3 +381,56 @@ class SqlActionRepository:
                 select(PendingAction).where(PendingAction.id.in_(action_ids))
             )
             return {r.id: _action(r) for r in rows}
+
+    async def open_for_user(self, user_id: uuid.UUID, now: datetime) -> list[ActionRecord]:
+        async with self._sessions() as session:
+            rows = await session.scalars(
+                select(PendingAction)
+                .where(
+                    PendingAction.user_id == user_id,
+                    PendingAction.status == "pending",
+                    PendingAction.expires_at > now,
+                )
+                .order_by(PendingAction.created_at.desc())
+                .limit(10)
+            )
+            return [_action(r) for r in rows]
+
+
+class SqlDeviceRepository:
+    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+        self._sessions = sessions
+
+    async def register(self, user_id: uuid.UUID, token: str, platform: str) -> None:
+        now = datetime.now(UTC)
+        async with self._sessions() as session:
+            await session.execute(
+                insert(Device)
+                .values(id=uuid.uuid4(), user_id=user_id, token=token, platform=platform)
+                .on_conflict_do_update(
+                    index_elements=[Device.token],
+                    set_={"user_id": user_id, "platform": platform, "last_seen_at": now},
+                )
+            )
+            await session.commit()
+
+    async def unregister(self, user_id: uuid.UUID, token: str) -> None:
+        async with self._sessions() as session:
+            await session.execute(
+                delete(Device).where(Device.token == token, Device.user_id == user_id)
+            )
+            await session.commit()
+
+    async def tokens_for(self, user_id: uuid.UUID) -> list[str]:
+        async with self._sessions() as session:
+            rows = await session.scalars(
+                select(Device.token).where(Device.user_id == user_id).order_by(Device.token)
+            )
+            return list(rows)
+
+    async def delete_tokens(self, tokens: list[str]) -> None:
+        if not tokens:
+            return
+        async with self._sessions() as session:
+            await session.execute(delete(Device).where(Device.token.in_(tokens)))
+            await session.commit()

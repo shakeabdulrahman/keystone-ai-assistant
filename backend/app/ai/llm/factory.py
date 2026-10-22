@@ -2,6 +2,7 @@
 
 from app.ai.llm.base import LLMProvider
 from app.ai.llm.fake import FakeLLMProvider
+from app.ai.llm.gemini import GeminiProvider
 from app.ai.llm.ollama import OllamaProvider
 from app.core.config import Settings
 
@@ -17,7 +18,11 @@ def create_llm_provider(settings: Settings) -> LLMProvider:
                 model=settings.ollama_model,
                 timeout_s=settings.llm_timeout_s,
             )
-        case "gemini" | "groq":
-            raise NotImplementedError(
-                f"LLM_PROVIDER={settings.llm_provider} arrives in a later phase; use fake or ollama"
+        case "gemini":
+            assert settings.gemini_api_key is not None  # enforced by Settings validation
+            return GeminiProvider(
+                settings.gemini_api_key,
+                settings.gemini_model,
+                timeout_s=settings.llm_timeout_s,
+                thinking_budget=settings.gemini_thinking_budget,
             )

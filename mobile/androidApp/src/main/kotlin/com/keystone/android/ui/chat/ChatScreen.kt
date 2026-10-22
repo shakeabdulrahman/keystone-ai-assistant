@@ -70,6 +70,7 @@ import com.keystone.android.ui.chat.ChatMessageUi.Role
 import com.keystone.android.ui.chat.ChatMessageUi.Status
 import com.keystone.android.ui.chat.cards.ConfirmationCard
 import com.keystone.android.ui.chat.cards.ToolActivity
+import com.keystone.android.ui.common.userMessage
 import com.keystone.android.voice.SpeechError
 import com.keystone.designsystem.theme.KeystoneTheme
 import com.keystone.shared.core.AppError
@@ -524,7 +525,7 @@ private fun AppError?.toMessage(): String = when (this) {
         "ai_misconfigured" -> stringResource(R.string.chat_error_misconfigured)
         else -> stringResource(R.string.error_assistant_unavailable)
     }
-    is AppError.Http -> stringResource(R.string.error_server, status)
+    is AppError.Http -> userMessage()
     AppError.InvalidResponse -> stringResource(R.string.error_invalid_response)
     AppError.Unknown, null -> stringResource(R.string.error_unknown)
 }

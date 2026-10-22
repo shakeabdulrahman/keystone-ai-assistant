@@ -208,3 +208,30 @@ class InMemoryActionRepository:
 
     async def get_many(self, action_ids: list[uuid.UUID]) -> dict[uuid.UUID, ActionRecord]:
         return {i: self.actions[i] for i in action_ids if i in self.actions}
+
+    async def open_for_user(self, user_id: uuid.UUID, now: datetime) -> list[ActionRecord]:
+        open_ = [
+            a
+            for a in self.actions.values()
+            if a.user_id == user_id and a.status == "pending" and a.expires_at > now
+        ]
+        return sorted(open_, key=lambda a: a.created_at, reverse=True)
+
+
+class InMemoryDeviceRepository:
+    def __init__(self) -> None:
+        self.devices: dict[str, tuple[uuid.UUID, str]] = {}  # token -> (user, platform)
+
+    async def register(self, user_id: uuid.UUID, token: str, platform: str) -> None:
+        self.devices[token] = (user_id, platform)
+
+    async def unregister(self, user_id: uuid.UUID, token: str) -> None:
+        if self.devices.get(token, (None,))[0] == user_id:
+            del self.devices[token]
+
+    async def tokens_for(self, user_id: uuid.UUID) -> list[str]:
+        return sorted(t for t, (u, _) in self.devices.items() if u == user_id)
+
+    async def delete_tokens(self, tokens: list[str]) -> None:
+        for token in tokens:
+            self.devices.pop(token, None)

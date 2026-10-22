@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Voice questions (Phase 6). Asked for at runtime, the first time the mic is tapped. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Push notifications (Phase 7). Android 13+ asks the user; the app explains why first. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Android 11+ package visibility: without these, SpeechRecognizer and TextToSpeech
          can't see the system's speech services and silently report "unavailable". -->
@@ -25,6 +27,22 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.Keystone">
+
+        <!-- Used by FCM for notifications shown while the app is in the background. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="hr_updates" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+
+        <service
+            android:name=".push.KeystoneMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
 
         <activity
             android:name=".MainActivity"

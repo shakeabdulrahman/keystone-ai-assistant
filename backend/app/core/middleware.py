@@ -14,6 +14,7 @@ from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.logging import request_id_var
+from app.core.metrics import HTTP_LATENCY, HTTP_REQUESTS
 
 REQUEST_ID_HEADER = "x-request-id"
 _VALID_REQUEST_ID = re.compile(r"^[A-Za-z0-9\-]{8,64}$")
@@ -54,13 +55,18 @@ class RequestContextMiddleware:
                 raise
             await self._send_internal_error(send_wrapper, request_id)
         finally:
+            duration = time.perf_counter() - started
+            # Route *template* ("/v1/actions/{action_id}"), never the raw path: bounded labels.
+            route = getattr(scope.get("route"), "path", None) or "unmatched"
+            HTTP_REQUESTS.labels(scope["method"], route, str(status_code)).inc()
+            HTTP_LATENCY.labels(route).observe(duration)
             logger.info(
                 "request",
                 extra={
                     "method": scope["method"],
                     "path": scope["path"],  # path only: query strings may carry user data
                     "status": status_code,
-                    "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+                    "duration_ms": round(duration * 1000, 1),
                 },
             )
             request_id_var.reset(token)

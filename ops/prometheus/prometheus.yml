@@ -1,0 +1,14 @@
+# Local monitoring (docker compose --profile observability up). Scrapes the API every 15 s.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: keystone-api
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      # Local-only token, matching METRICS_TOKEN's default in docker-compose.yml.
+      # In a real deployment the token is a secret (credentials_file), never in git.
+      credentials: local-dev-metrics-token
+    static_configs:
+      - targets: ["api:8000"]

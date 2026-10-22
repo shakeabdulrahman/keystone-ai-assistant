@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.api.deps import CurrentUser
+from app.api.deps import AppCheckRejectedError, CurrentUser, limit_actions
 from app.core.errors import problem
 from app.repositories.base import ActionRecord, ActionRepository
 from app.services.actions import ActionError, ActionService
@@ -84,7 +84,7 @@ async def get_action(action_id: UUID, user: CurrentUser, actions: Actions) -> Ac
     return ActionOut.of(await actions.get(user, action_id))
 
 
-@router.post("/{action_id}/confirm")
+@router.post("/{action_id}/confirm", dependencies=[Depends(limit_actions)])
 async def confirm_action(action_id: UUID, user: CurrentUser, actions: Actions) -> ActionOut:
     """Runs the action. Safe to retry: an executed action returns the same result again.
     A business-rule failure at this point (e.g. balance changed) returns 200 with
@@ -92,7 +92,7 @@ async def confirm_action(action_id: UUID, user: CurrentUser, actions: Actions) -
     return ActionOut.of(await actions.confirm(user, action_id))
 
 
-@router.post("/{action_id}/cancel")
+@router.post("/{action_id}/cancel", dependencies=[Depends(limit_actions)])
 async def cancel_action(action_id: UUID, user: CurrentUser, actions: Actions) -> ActionOut:
     return ActionOut.of(await actions.cancel(user, action_id))
 
@@ -102,8 +102,15 @@ async def _action_error(_: Request, exc: Exception) -> JSONResponse:
     return problem(exc.status, exc.code, exc.code.replace("_", " ").capitalize(), exc.message)
 
 
+async def _app_check_rejected(_: Request, __: Exception) -> JSONResponse:
+    return problem(
+        403, "app_check_failed", "App not verified", "Please update the app from the Play Store."
+    )
+
+
 def register_action_errors(app: FastAPI) -> None:
     app.add_exception_handler(ActionError, _action_error)
+    app.add_exception_handler(AppCheckRejectedError, _app_check_rejected)
 
 
 def enrich_confirmation_parts(

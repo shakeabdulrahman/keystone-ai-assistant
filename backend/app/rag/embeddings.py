@@ -147,3 +147,67 @@ def _normalise(vector: list[float]) -> list[float]:
 def cosine(a: Sequence[float], b: Sequence[float]) -> float:
     """For unit vectors (all of ours) cosine similarity is the dot product."""
     return sum(x * y for x, y in zip(a, b, strict=True))
+
+
+class GeminiEmbedder:
+    """Gemini embeddings (free tier). `gemini-embedding-001` is asked for 768 dimensions,
+    matching our vector column, and uses task types for documents vs queries."""
+
+    name = "gemini"
+    # Starting point; check with `python -m app.rag.eval` and adjust RAG_MIN_SIMILARITY.
+    min_similarity = 0.5
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "gemini-embedding-001",
+        *,
+        base_url: str = "https://generativelanguage.googleapis.com/v1beta",
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self.model = model
+        self.dims = EMBEDDING_DIMS
+        self._client = client or httpx.AsyncClient(
+            base_url=base_url, headers={"x-goog-api-key": api_key}, timeout=60.0
+        )
+
+    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), 100):  # the API takes up to 100 per batch
+            vectors += await self._embed(list(texts[start : start + 100]), "RETRIEVAL_DOCUMENT")
+        return vectors
+
+    async def embed_query(self, text: str) -> list[float]:
+        return (await self._embed([text], "RETRIEVAL_QUERY"))[0]
+
+    async def _embed(self, texts: list[str], task: str) -> list[list[float]]:
+        body = {
+            "requests": [
+                {
+                    "model": f"models/{self.model}",
+                    "content": {"parts": [{"text": t}]},
+                    "taskType": task,
+                    "outputDimensionality": self.dims,
+                }
+                for t in texts
+            ]
+        }
+        try:
+            response = await self._client.post(
+                f"/models/{self.model}:batchEmbedContents", json=body
+            )
+        except httpx.HTTPError as exc:
+            raise EmbeddingError(f"Gemini unreachable: {type(exc).__name__}") from exc
+        if response.status_code >= 400:
+            raise EmbeddingError(f"Gemini embeddings returned HTTP {response.status_code}")
+        try:
+            vectors = [e["values"] for e in response.json()["embeddings"]]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise EmbeddingError("Unexpected embedding response") from exc
+        if len(vectors) != len(texts) or any(len(v) != self.dims for v in vectors):
+            raise EmbeddingError(f"Expected {len(texts)} vectors of {self.dims} dimensions")
+        # Shortened (768 of 3072) vectors aren't unit length: normalise for cosine.
+        return [_normalise([float(x) for x in v]) for v in vectors]
+
+    async def aclose(self) -> None:
+        await self._client.aclose()

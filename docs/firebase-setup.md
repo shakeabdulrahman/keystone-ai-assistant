@@ -38,3 +38,19 @@ FIREBASE_PROJECT_ID=keystone-hr-1a2b3
 ```
 
 The project ID is not a secret: it's printed inside every token. Only Google holds the private keys that sign tokens; our backend checks signatures with Google's public keys.
+
+## 5. Push notifications (Phase 7)
+
+Cloud Messaging (FCM) is free and already enabled for every Firebase project. The app side needs nothing more, because `google-services.json` covers it. The backend needs a **service-account key** so that it is allowed to send messages.
+
+1. **Project settings** (gear icon) → **Service accounts** tab → **Firebase Admin SDK** → **Generate new private key** → **Generate key**. A `.json` file downloads.
+2. Rename it to `firebase-service-account.json` and move it to `keystone-ai-assistant/backend/secrets/`. Git ignores that folder.
+3. Add this line to `backend/.env`. It is the path *inside* the container, where Docker Compose mounts the folder read-only:
+   ```
+   FCM_SERVICE_ACCOUNT_FILE=/run/secrets/keystone/firebase-service-account.json
+   ```
+4. Restart the backend: `docker compose up --build`. The log no longer says `push_disabled`.
+
+This key **is a real secret**: it lets anyone send messages as your project. Never commit it, paste it into a chat, or copy it into the Docker image. If it ever leaks, delete it under **Google Cloud console → IAM → Service accounts → Keys** and generate a new one.
+
+Without the key everything else works. Pushes are only written to the backend log (`push_logged`), and in-app notifications still appear.

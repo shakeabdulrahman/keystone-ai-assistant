@@ -65,6 +65,12 @@ jobs:
       - name: Build debug APK
         run: ./gradlew :androidApp:assembleDebug
 
+      # Unsigned, minified release build: catches R8/shrinking problems before a real release.
+      - name: Build release APK (unsigned)
+        run: ./gradlew :androidApp:assembleRelease
+        env:
+          KEYSTONE_RELEASE_API_BASE_URL: https://keystone-api.example.invalid
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
