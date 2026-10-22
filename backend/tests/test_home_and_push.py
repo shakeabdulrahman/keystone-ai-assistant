@@ -2,6 +2,7 @@
 
 import json
 import uuid
+from pathlib import Path
 from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs
@@ -315,3 +316,17 @@ async def test_fcm_sender_survives_network_errors() -> None:
 
 def test_dates_used_in_home_tests_are_fixed() -> None:
     assert TODAY == date(2026, 10, 15) and NOW.date() == TODAY
+
+
+def test_missing_push_key_falls_back_to_logging(tmp_path: Path) -> None:
+    from app.core.config import Settings
+    from app.main import _push_sender
+    from app.notifications.push import LogPushSender
+
+    missing = Settings(fcm_service_account_file=str(tmp_path / "nope.json"), _env_file=None)
+    assert isinstance(_push_sender(missing), LogPushSender)
+
+    broken = tmp_path / "broken.json"
+    broken.write_text("{not json")
+    bad = Settings(fcm_service_account_file=str(broken), _env_file=None)
+    assert isinstance(_push_sender(bad), LogPushSender)

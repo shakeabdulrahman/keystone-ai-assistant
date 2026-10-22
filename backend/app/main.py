@@ -180,7 +180,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 def _push_sender(settings: Settings) -> PushSender:
     if settings.fcm_service_account_file:
-        return FcmPushSender.from_file(settings.fcm_service_account_file)
+        try:
+            return FcmPushSender.from_file(settings.fcm_service_account_file)
+        except (OSError, ValueError, KeyError) as exc:
+            # Push is optional: a missing or malformed key must not take the whole API down.
+            # Logged loudly (without the file's contents) so the misconfiguration is noticed.
+            logger.error(
+                "push_key_unusable",
+                extra={"path": settings.fcm_service_account_file, "error_type": type(exc).__name__},
+            )
+            return LogPushSender()
     logger.info("push_disabled", extra={"note": "FCM_SERVICE_ACCOUNT_FILE not set; logging only"})
     return LogPushSender()
 
