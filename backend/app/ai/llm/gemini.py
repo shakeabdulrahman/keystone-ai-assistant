@@ -99,7 +99,7 @@ class GeminiProvider:
             try:
                 if response.status_code >= 400:
                     await response.aread()
-                    raise _error_for(response)
+                    raise _error_for(response, self.model)
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
                         continue
@@ -152,15 +152,21 @@ class GeminiProvider:
         await self._client.aclose()
 
 
-def _error_for(response: httpx.Response) -> LLMError:
+def _error_for(response: httpx.Response, model: str) -> LLMError:
     status = response.status_code
-    # Log the API's reason (e.g. API_KEY_INVALID), never the key itself.
-    reason = ""
+    # Log Google's explanation (e.g. "models/x is not found", "API key not valid") so a
+    # misconfiguration can be fixed from the logs. It never contains the key (sent in a
+    # header) and is truncated; prompts aren't echoed in these errors.
+    reason, detail = "", ""
     try:
-        reason = str(response.json().get("error", {}).get("status", ""))
-    except ValueError:
+        error = response.json().get("error", {})
+        reason = str(error.get("status", ""))
+        detail = str(error.get("message", ""))[:300]
+    except (ValueError, AttributeError):
         pass
-    logger.warning("gemini_error", extra={"status": status, "reason": reason})
+    logger.warning(
+        "gemini_error", extra={"status": status, "reason": reason, "detail": detail, "model": model}
+    )
     if status == 429:
         retry = response.headers.get("retry-after")
         return LLMRateLimitedError(
