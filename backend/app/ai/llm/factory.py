@@ -25,4 +25,7 @@ def create_llm_provider(settings: Settings) -> LLMProvider:
                 settings.gemini_model,
                 timeout_s=settings.llm_timeout_s,
                 thinking_budget=settings.gemini_thinking_budget,
+                fallback_models=tuple(
+                    m.strip() for m in settings.gemini_fallback_models.split(",") if m.strip()
+                ),
             )

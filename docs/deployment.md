@@ -80,6 +80,7 @@ To restrict to specific app IDs, set `APP_CHECK_APP_IDS=1:123:android:abc,…` (
 - **Logs:** Render → Logs. JSON lines with `request_id`; no message content, tokens or keys are logged.
 - **Rate limits** are in memory per instance. With one free instance that's exact; with several, move the limiter to Redis (the `RateLimiter` interface is ready for it).
 - **Client IPs:** Render's proxy appends the caller's IP to `X-Forwarded-For`, so `TRUSTED_PROXY_HOPS=1`. The backend takes the IP that proxy added, never the client-written part of the header.
+- **"Model is experiencing high demand" (503):** common on the free tier. The server retries twice (after 1 s and 3 s) before giving up, and then tries `GEMINI_FALLBACK_MODELS` in order. Set that in Render → Environment to one or two other models your key can use (list them with the `models` API call in the troubleshooting notes).
 - **Gemini quota errors** reach the app as "The assistant is busy right now". Lower `RATE_CHAT_PER_MINUTE` if you keep hitting the free cap; title generation uses one extra call per new conversation (`TITLE_GENERATION_ENABLED=false` to save quota).
 - **Rotating a secret:** change it in Render (Environment) and redeploy. For the Firebase key, create a new key, replace the secret file, deploy, then delete the old key in Google Cloud.
 - **Cost guard:** nothing here takes a credit card except, optionally, Render. If a provider asks for one, the free plan is still enough.

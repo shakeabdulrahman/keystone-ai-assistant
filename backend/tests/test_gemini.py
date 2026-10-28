@@ -28,8 +28,9 @@ def sse(*chunks: dict[str, Any]) -> bytes:
     return "".join(f"data: {json.dumps(c)}\r\n\r\n" for c in chunks).encode()
 
 
-def provider(handler: Any) -> GeminiProvider:
-    return GeminiProvider(KEY, "gemini-test", transport=httpx.MockTransport(handler))
+def provider(handler: Any, **kw: Any) -> GeminiProvider:
+    kw.setdefault("retry_delays_s", ())
+    return GeminiProvider(KEY, "gemini-test", transport=httpx.MockTransport(handler), **kw)
 
 
 def request(**kw: Any) -> LLMRequest:
@@ -282,3 +283,49 @@ def test_factories_build_gemini() -> None:
     s = Settings(llm_provider="gemini", gemini_api_key="k", _env_file=None)
     assert create_llm_provider(s).name == "gemini"
     assert create_embedder(s).name == "gemini"
+
+
+OK_SSE = {"candidates": [{"content": {"parts": [{"text": "Hi"}]}, "finishReason": "STOP"}]}
+BUSY = {"error": {"status": "UNAVAILABLE", "message": "high demand"}}
+
+
+async def test_overloaded_model_is_retried_then_succeeds() -> None:
+    calls: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append(req.url.path)
+        if len(calls) < 3:
+            return httpx.Response(503, json=BUSY)
+        return httpx.Response(200, content=sse(OK_SSE))
+
+    events = await collect(provider(handler, retry_delays_s=(0, 0)), request())
+    assert [e.text for e in events if isinstance(e, TextDelta)] == ["Hi"]
+    assert len(calls) == 3
+
+
+async def test_falls_back_to_the_next_model_when_busy() -> None:
+    models: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        models.append(req.url.path.split("/")[-1].split(":")[0])
+        if "gemini-test" in req.url.path:
+            return httpx.Response(503, json=BUSY)
+        return httpx.Response(200, content=sse(OK_SSE))
+
+    p = provider(handler, retry_delays_s=(0,), fallback_models=("gemini-backup",))
+    events = await collect(p, request())
+    assert any(isinstance(e, TextDelta) for e in events)
+    assert models == ["gemini-test", "gemini-test", "gemini-backup"]
+
+
+async def test_configuration_errors_are_not_retried() -> None:
+    calls = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(404, json={"error": {"status": "NOT_FOUND", "message": "gone"}})
+
+    with pytest.raises(LLMConfigurationError, match="gone"):
+        await collect(provider(handler, retry_delays_s=(0, 0), fallback_models=("b",)), request())
+    assert calls == 1

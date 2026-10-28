@@ -57,10 +57,14 @@ class GeminiProvider:
         base_url: str = GEMINI_BASE_URL,
         timeout_s: float = 120.0,
         thinking_budget: int | None = None,
+        fallback_models: tuple[str, ...] = (),
+        retry_delays_s: tuple[float, ...] = (1.0, 3.0),
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.model = model
         self._thinking_budget = thinking_budget
+        self._fallback_models = fallback_models
+        self._retry_delays_s = retry_delays_s
         self._client = httpx.AsyncClient(
             base_url=base_url,
             headers={"x-goog-api-key": api_key.get_secret_value()},
@@ -89,17 +93,8 @@ class GeminiProvider:
         usage = Usage()
         finish: FinishReason = "stop"
         try:
-            http_request = self._client.build_request(
-                "POST",
-                f"/models/{self.model}:streamGenerateContent",
-                params={"alt": "sse"},
-                json=payload,
-            )
-            response = await self._client.send(http_request, stream=True)
+            response = await self._open(payload)
             try:
-                if response.status_code >= 400:
-                    await response.aread()
-                    raise _error_for(response, self.model)
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
                         continue
@@ -148,6 +143,34 @@ class GeminiProvider:
         except (httpx.HTTPError, json.JSONDecodeError) as exc:
             raise LLMUnavailableError(f"Gemini stream failed: {type(exc).__name__}") from exc
 
+    async def _open(self, payload: dict[str, Any]) -> httpx.Response:
+        """Start the stream. Gemini's free tier often answers 503 ("high demand") or 429
+        for a moment, so before anything reaches the user we retry briefly, then try the
+        fallback models in order. Errors that retrying can't fix (400/403/404) fail at once."""
+        for model in (self.model, *self._fallback_models):
+            for attempt, delay in enumerate((*self._retry_delays_s, None)):
+                request = self._client.build_request(
+                    "POST",
+                    f"/models/{model}:streamGenerateContent",
+                    params={"alt": "sse"},
+                    json=payload,
+                )
+                response = await self._client.send(request, stream=True)
+                if response.status_code < 400:
+                    if model != self.model:
+                        logger.info("gemini_fallback_used", extra={"model": model})
+                    return response
+                await response.aread()
+                await response.aclose()
+                error = _error_for(response, model)
+                if not isinstance(error, LLMUnavailableError | LLMRateLimitedError):
+                    raise error  # a configuration problem: another try won't help
+                if delay is None:
+                    break  # this model is busy: move on to the next one
+                logger.info("gemini_retry", extra={"model": model, "attempt": attempt + 1})
+                await anyio.sleep(delay)
+        raise error
+
     async def aclose(self) -> None:
         await self._client.aclose()
 
@@ -173,8 +196,8 @@ def _error_for(response: httpx.Response, model: str) -> LLMError:
             "Gemini quota exceeded", float(retry) if retry and retry.isdigit() else None
         )
     if status in (400, 401, 403, 404):
-        return LLMConfigurationError(f"Gemini rejected the request ({status} {reason})")
-    return LLMUnavailableError(f"Gemini returned HTTP {status}")
+        return LLMConfigurationError(f"Gemini rejected the request ({status} {reason}): {detail}")
+    return LLMUnavailableError(f"Gemini returned HTTP {status}: {detail}")
 
 
 def to_gemini_contents(messages: list[ChatMessage]) -> list[dict[str, Any]]:

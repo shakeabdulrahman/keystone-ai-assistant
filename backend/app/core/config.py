@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-3.8-flash"
     gemini_embedding_model: str = "gemini-embedding-001"
+    # Tried in order when the main model is overloaded (free-tier 503s). Comma-separated.
+    gemini_fallback_models: str = ""
     # Optional: limit "thinking" tokens on models that think (0 = off, faster answers).
     gemini_thinking_budget: int | None = None
 

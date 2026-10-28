@@ -294,7 +294,15 @@ class ChatService:
                 usage=UsageOut(input_tokens=usage.input_tokens, output_tokens=usage.output_tokens),
             )
         except LLMError as exc:
-            logger.warning("llm_error", extra={"code": exc.code, "error_type": type(exc).__name__})
+            logger.warning(
+                "llm_error",
+                # Our own error text (e.g. "Gemini rejected the request (400 ...)"): no user data.
+                extra={
+                    "code": exc.code,
+                    "error_type": type(exc).__name__,
+                    "detail": str(exc)[:300],
+                },
+            )
             yield StreamError(
                 code=exc.code, message=_USER_MESSAGES[exc.code], retryable=exc.retryable
             )
