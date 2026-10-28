@@ -7,7 +7,7 @@ services:
     name: keystone-api
     runtime: docker
     plan: free
-    region: frankfurt
+    region: singapore
     dockerContext: ./backend
     dockerfilePath: ./backend/Dockerfile
     healthCheckPath: /healthz
