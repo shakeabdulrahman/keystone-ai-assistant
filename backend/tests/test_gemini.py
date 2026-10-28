@@ -318,14 +318,14 @@ async def test_falls_back_to_the_next_model_when_busy() -> None:
     assert models == ["gemini-test", "gemini-test", "gemini-backup"]
 
 
-async def test_configuration_errors_are_not_retried() -> None:
-    calls = 0
+async def test_configuration_errors_are_not_retried_but_fallbacks_are_tried() -> None:
+    paths: list[str] = []
 
-    def handler(_: httpx.Request) -> httpx.Response:
-        nonlocal calls
-        calls += 1
+    def handler(req: httpx.Request) -> httpx.Response:
+        paths.append(req.url.path)
         return httpx.Response(404, json={"error": {"status": "NOT_FOUND", "message": "gone"}})
 
     with pytest.raises(LLMConfigurationError, match="gone"):
         await collect(provider(handler, retry_delays_s=(0, 0), fallback_models=("b",)), request())
-    assert calls == 1
+    # One call per model: a 404 isn't retried on the same model.
+    assert [p.split("/")[-1].split(":")[0] for p in paths] == ["gemini-test", "b"]

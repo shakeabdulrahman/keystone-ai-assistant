@@ -146,7 +146,8 @@ class GeminiProvider:
     async def _open(self, payload: dict[str, Any]) -> httpx.Response:
         """Start the stream. Gemini's free tier often answers 503 ("high demand") or 429
         for a moment, so before anything reaches the user we retry briefly, then try the
-        fallback models in order. Errors that retrying can't fix (400/403/404) fail at once."""
+        fallback models in order. Errors that retrying can't fix (400/403/404) aren't retried
+        on the same model; the next fallback model is tried instead."""
         for model in (self.model, *self._fallback_models):
             for attempt, delay in enumerate((*self._retry_delays_s, None)):
                 request = self._client.build_request(
@@ -163,10 +164,12 @@ class GeminiProvider:
                 await response.aread()
                 await response.aclose()
                 error = _error_for(response, model)
-                if not isinstance(error, LLMUnavailableError | LLMRateLimitedError):
-                    raise error  # a configuration problem: another try won't help
-                if delay is None:
-                    break  # this model is busy: move on to the next one
+                if delay is None or not isinstance(
+                    error, LLMUnavailableError | LLMRateLimitedError
+                ):
+                    # Busy after the retries, or a problem retrying can't fix (e.g. a model
+                    # retired for this key): move on to the next model, if any.
+                    break
                 logger.info("gemini_retry", extra={"model": model, "attempt": attempt + 1})
                 await anyio.sleep(delay)
         raise error
