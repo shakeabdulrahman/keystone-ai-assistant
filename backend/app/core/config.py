@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     # Gemini (cloud deployment). Key from Google AI Studio; model names change over time,
     # so check the current free models at https://ai.google.dev/gemini-api/docs/models.
     gemini_api_key: SecretStr | None = None
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.8-flash"
     gemini_embedding_model: str = "gemini-embedding-001"
     # Optional: limit "thinking" tokens on models that think (0 = off, faster answers).
     gemini_thinking_budget: int | None = None

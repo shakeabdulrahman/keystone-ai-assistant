@@ -22,7 +22,7 @@ pgvector is enabled by the first migration (`CREATE EXTENSION IF NOT EXISTS vect
 ## 2. AI: Gemini key
 
 1. Open aistudio.google.com → **Get API key** → create a key.
-2. Check the current free models at ai.google.dev/gemini-api/docs/models. Defaults: `GEMINI_MODEL=gemini-2.5-flash`, `GEMINI_EMBEDDING_MODEL=gemini-embedding-001` (768 dimensions requested, matching the vector column). If a model is retired, change the environment variable in Render; no code change.
+2. Check the current free models at ai.google.dev/gemini-api/docs/models. Defaults: `GEMINI_MODEL=gemini-3.8-flash`, `GEMINI_EMBEDDING_MODEL=gemini-embedding-001` (768 dimensions requested, matching the vector column). If a model is retired, Google's error says which model replaces it (the server logs it as `gemini_error`). Update `GEMINI_MODEL` in `render.yaml` and push: Render syncs Blueprint values, so a change made only in the dashboard is overwritten on the next sync.
 
 ## 3. API: Render
 

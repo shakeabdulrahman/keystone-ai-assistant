@@ -7,7 +7,7 @@ services:
     name: keystone-api
     runtime: docker
     plan: free
-    region: singapore
+    region: frankfurt
     dockerContext: ./backend
     dockerfilePath: ./backend/Dockerfile
     healthCheckPath: /healthz
@@ -32,9 +32,7 @@ services:
       - key: GEMINI_API_KEY          # Google AI Studio → Get API key
         sync: false
       - key: GEMINI_MODEL            # check current free models; change without a rebuild
-        value: gemini-2.5-flash
-      - key: GEMINI_THINKING_BUDGET  # 0 = no "thinking": faster, fewer tokens
-        value: "0"
+        value: gemini-3.8-flash
       - key: TRUSTED_PROXY_HOPS      # Render's proxy appends the caller's IP
         value: "1"
       - key: METRICS_TOKEN
