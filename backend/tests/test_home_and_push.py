@@ -2,8 +2,8 @@
 
 import json
 import uuid
-from pathlib import Path
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -330,3 +330,20 @@ def test_missing_push_key_falls_back_to_logging(tmp_path: Path) -> None:
     broken.write_text("{not json")
     bad = Settings(fcm_service_account_file=str(broken), _env_file=None)
     assert isinstance(_push_sender(bad), LogPushSender)
+
+
+def test_people_see_their_own_name_not_a_generated_one() -> None:
+    from app.integrations.hris import person_name
+
+    assert person_name("  Abdul   Rahman ", "x@y.com") == "Abdul Rahman"
+    assert person_name(None, "rahman.basha@amtexsystems.com") == "Rahman Basha"
+    assert person_name("", "priya_k+test@corp.io") == "Priya K"
+    assert person_name(None, "12345@corp.io") is None
+    assert person_name(None, None) is None
+
+
+async def test_home_greets_by_the_name_from_sign_in() -> None:
+    harness = build_test_app()
+    async with client_for(harness) as c:
+        home = (await c.get("/v1/home", headers=as_user("u1", "rahman.basha@example.com"))).json()
+    assert home["first_name"] == "Rahman"

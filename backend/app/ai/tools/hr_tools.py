@@ -46,7 +46,7 @@ class NotificationArgs(ToolArgs):
 
 
 async def get_user_profile(_: NoArgs, ctx: ToolContext) -> dict[str, Any]:
-    p = await ctx.hris.profile(ctx.user.id, ctx.user.email)
+    p = await ctx.hris.profile(ctx.user.id, ctx.user.email, ctx.user.display_name)
     return {
         "name": p.name,
         "email": p.email,

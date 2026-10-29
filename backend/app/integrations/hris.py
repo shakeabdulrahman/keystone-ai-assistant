@@ -15,6 +15,7 @@ later reads. A real HRIS persists them; the demo forgets them when the server re
 
 import hashlib
 import random
+import re
 import uuid
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
@@ -95,8 +96,22 @@ class HrisError(Exception):
     """The HR system refused a change (e.g. the record no longer exists)."""
 
 
+def person_name(display_name: str | None, email: str | None) -> str | None:
+    """The user's name from their sign-in: the display name, or else one derived from the
+    email address ("rahman.basha@…" → "Rahman Basha"). None if neither gives a name."""
+    if display_name and display_name.strip():
+        return " ".join(display_name.split())
+    if not email or "@" not in email:
+        return None
+    local = email.split("@", 1)[0].split("+", 1)[0]
+    words = [w for w in re.split(r"[._\-]+", local) if w.isalpha()]
+    return " ".join(w.capitalize() for w in words) or None
+
+
 class HrisClient(Protocol):
-    async def profile(self, user_id: uuid.UUID, email: str | None) -> EmployeeProfile: ...
+    async def profile(
+        self, user_id: uuid.UUID, email: str | None, name: str | None = None
+    ) -> EmployeeProfile: ...
     async def leave_balances(self, user_id: uuid.UUID) -> list[LeaveBalance]: ...
     async def leave_requests(self, user_id: uuid.UUID) -> list[LeaveRequest]: ...
     async def hr_requests(self, user_id: uuid.UUID) -> list[HrRequest]: ...
@@ -156,11 +171,15 @@ class DemoHrisClient:
         seed = hashlib.sha256(f"{user_id}:{topic}".encode()).digest()
         return random.Random(int.from_bytes(seed[:8], "big"))  # noqa: S311 (not for security)
 
-    async def profile(self, user_id: uuid.UUID, email: str | None) -> EmployeeProfile:
+    async def profile(
+        self, user_id: uuid.UUID, email: str | None, name: str | None = None
+    ) -> EmployeeProfile:
         rng = self._rng(user_id, "profile")
         title, department = rng.choice(_TITLES)
+        demo_name = f"{rng.choice(_FIRST)} {rng.choice(_LAST)}"
         return EmployeeProfile(
-            name=f"{rng.choice(_FIRST)} {rng.choice(_LAST)}",
+            # The signed-in person's own name; the generated one only if we know nothing.
+            name=person_name(name, email) or demo_name,
             email=email,
             job_title=title,
             department=department,

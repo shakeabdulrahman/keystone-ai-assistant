@@ -62,7 +62,7 @@ class HomeService:
         # groups still run concurrently with each other.
         people, work = await asyncio.gather(
             asyncio.gather(
-                self._hris.profile(uid, user.email),
+                self._hris.profile(uid, user.email, user.display_name),
                 self._hris.leave_balances(uid),
                 self._hris.leave_requests(uid),
                 self._hris.notifications(uid),
