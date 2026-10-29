@@ -8,7 +8,7 @@ An AI assistant for employees, on Android, built with Kotlin Multiplatform. You 
 | --- | --- |
 | **Mobile** | Kotlin, Jetpack Compose, Material 3, Kotlin Multiplatform (shared domain, Ktor, Room KMP), Hilt, Coroutines/Flow |
 | **Backend** | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy async, Alembic, PostgreSQL 16 + pgvector |
-| **AI** | Provider-agnostic `LLMProvider`: Ollama locally (qwen2.5 + nomic-embed-text), Gemini in the cloud; own agent loop, no framework |
+| **AI** | Provider-agnostic `LLMProvider`: Ollama locally (qwen2.5 + nomic-embed-text); in the cloud Groq for chat with automatic failover to Gemini, Gemini embeddings; own agent loop, no framework |
 | **Platform** | Firebase Auth, FCM, App Check · Docker · GitHub Actions · Render + Neon (free) · Prometheus + Grafana |
 
 ## What it does
@@ -39,7 +39,7 @@ flowchart LR
     subgraph API["AI gateway (FastAPI)"]
         MW["Middleware<br/>rate limits · headers · body limit · request ID"] --> Auth["Auth<br/>Firebase JWT + App Check"]
         Auth --> Chat["Chat service<br/>agent loop"]
-        Chat --> LLM["LLMProvider<br/>Ollama | Gemini | Fake"]
+        Chat --> LLM["LLMProvider + failover<br/>Groq → Gemini | Ollama | Fake"]
         Chat --> Tools["Tool registry<br/>validate · timeout · audit"]
         Tools --> HRIS["HR system adapter<br/>(demo HRIS)"]
         Tools --> RAG["RAG<br/>hybrid search + RRF"]
@@ -136,13 +136,13 @@ Android: follow `docs/firebase-setup.md` once (free Firebase project, `google-se
 
 Try: "How many leave days do I have left?" · "Can I carry over unused leave?" · "Book annual leave on Monday and Tuesday after next" · tap the mic and ask by voice.
 
-Cloud: see [docs/deployment.md](docs/deployment.md) (Render + Neon + Gemini, all free).
+Cloud: see [docs/deployment.md](docs/deployment.md) (Render + Neon + Groq + Gemini, all free).
 
 ## Tests and quality
 
 | Suite | What |
 | --- | --- |
-| Backend: **223 tests** (with Postgres) | API contracts, streaming, agent loop, every tool, RAG + retrieval eval (hit@k, MRR), actions (races, idempotency, expiry), home, push, security (headers, limits, App Check), metrics, Gemini adapter (mocked HTTP), migrations (`alembic check`) |
+| Backend: **240 tests** (with Postgres) | API contracts, streaming, agent loop, every tool, RAG + retrieval eval (hit@k, MRR), actions (races, idempotency, expiry), home, push, security (headers, limits, App Check), metrics, Gemini and Groq adapters and cross-vendor failover (mocked HTTP), migrations (`alembic check`) |
 | Mobile: **134 tests** | KMP repositories (Ktor MockEngine), SSE parser and contract fixtures, sentence chunker, App Check and bearer plugins, ViewModels with fakes and virtual time, error copy |
 | Static | ruff, ruff format, strict mypy, Android Lint, unsigned minified release build |
 | Supply chain | pip-audit, gitleaks, Dependabot |
@@ -170,4 +170,4 @@ Next ideas: an iOS app on the same KMP core, OpenTelemetry tracing, a Redis rate
 
 ## Key decisions
 
-See [docs/adr](docs/adr/README.md). Highlights: a Python gateway owns all AI; SSE over WebSockets; pgvector instead of a separate vector database; no agent framework; tools as the only data access; propose/confirm for writes; on-device voice; generic push; layered rate limits with App Check; free hosting with Gemini.
+See [docs/adr](docs/adr/README.md). Highlights: a Python gateway owns all AI; SSE over WebSockets; pgvector instead of a separate vector database; no agent framework; tools as the only data access; propose/confirm for writes; on-device voice; generic push; layered rate limits with App Check; free hosting with multi-vendor AI failover.

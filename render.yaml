@@ -27,7 +27,16 @@ services:
         value: firebase
       - key: FIREBASE_PROJECT_ID
         sync: false
+      # Chat: Groq first (fast); if it can't answer, Gemini. Embeddings: Gemini.
       - key: LLM_PROVIDER
+        value: groq
+      - key: GROQ_API_KEY            # console.groq.com → API Keys
+        sync: false
+      - key: GROQ_MODEL              # list current models: GET api.groq.com/openai/v1/models
+        value: openai/gpt-oss-120b
+      - key: LLM_FALLBACK_PROVIDERS
+        value: gemini
+      - key: EMBEDDING_PROVIDER      # keep: the stored vectors were made with Gemini
         value: gemini
       - key: GEMINI_API_KEY          # Google AI Studio → Get API key
         sync: false

@@ -20,3 +20,4 @@ Short records of the decisions that shape Keystone. Each one states the context,
 | [0014](0014-abuse-protection.md) | Abuse protection: layered rate limits, App Check, strict HTTP defaults |
 | [0015](0015-observability.md) | Observability: Prometheus metrics with low cardinality, JSON logs |
 | [0016](0016-free-cloud-deployment.md) | Free cloud deployment: Render + Neon + Gemini |
+| [0017](0017-multi-provider-failover.md) | Chat on Groq with automatic failover to Gemini |

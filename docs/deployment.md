@@ -6,7 +6,8 @@ About 30 minutes. Everything here uses free plans. Free-tier limits and model na
 | --- | --- | --- |
 | API (Docker) | Render free web service | Sleeps after ~15 min idle; the first request then takes up to a minute |
 | Database | Neon free Postgres (pgvector built in) | Suspends when idle and resumes in about a second |
-| AI (chat + embeddings) | Gemini API with a Google AI Studio key | Requests per minute and per day are capped; **free-tier prompts may be used by Google to improve its products, so use demo data only** |
+| AI chat | Groq (OpenAI-compatible API), with Gemini as automatic fallback | Free tiers have per-minute token limits; the server fails over between vendors |
+| AI embeddings | Gemini API with a Google AI Studio key | Requests per minute and per day are capped; **free-tier prompts may be used by Google to improve its products, so use demo data only** |
 | Sign-in, push, App Check | Firebase Spark plan | Already set up in `docs/firebase-setup.md` |
 
 Ollama can't run on a free server (a 7B model needs several GB of RAM), which is why production uses Gemini. Switching is configuration only: `LLM_PROVIDER=gemini`.
@@ -24,13 +25,20 @@ pgvector is enabled by the first migration (`CREATE EXTENSION IF NOT EXISTS vect
 1. Open aistudio.google.com → **Get API key** → create a key.
 2. Check the current free models at ai.google.dev/gemini-api/docs/models. Defaults: `GEMINI_MODEL=gemini-3.8-flash`, `GEMINI_EMBEDDING_MODEL=gemini-embedding-001` (768 dimensions requested, matching the vector column). If a model is retired, Google's error says which model replaces it (the server logs it as `gemini_error`). Update `GEMINI_MODEL` in `render.yaml` and push: Render syncs Blueprint values, so a change made only in the dashboard is overwritten on the next sync.
 
+## 2b. AI: Groq key (chat)
+
+1. Open console.groq.com → **API Keys** → **Create API Key**.
+2. Check the current models (`GET https://api.groq.com/openai/v1/models` with `Authorization: Bearer <key>`), and pick one that supports tool use. Default: `GROQ_MODEL=openai/gpt-oss-120b`.
+
+Why two vendors: free tiers get overloaded. In October 2026 Gemini's newest Flash model answered "high demand" (503) for hours. With `LLM_FALLBACK_PROVIDERS=gemini`, a chat turn that Groq can't start (rate limit, outage) is retried on Gemini automatically.
+
 ## 3. API: Render
 
 1. Push the repository to GitHub.
 2. Render dashboard → **New → Blueprint** → choose the repository. Render reads `render.yaml`.
 3. Fill in the values it asks for (stored as secrets by Render, never in git):
    - `DATABASE_URL`: the Neon string
-   - `GEMINI_API_KEY`
+   - `GEMINI_API_KEY` and `GROQ_API_KEY`
    - `FIREBASE_PROJECT_ID` (e.g. `keystone-12345`) and `FIREBASE_PROJECT_NUMBER` (Firebase console → Project settings → General)
 4. **Push (optional):** service → **Environment → Secret Files → Add** `firebase-service-account.json` with the key's contents. Render mounts it at `/etc/secrets/firebase-service-account.json`, where `FCM_SERVICE_ACCOUNT_FILE` points.
 5. Deploy. The container runs `start.sh`: migrations, then the knowledge-base load (embeddings via Gemini; unchanged documents are skipped on later starts), then the server on Render's `$PORT`.

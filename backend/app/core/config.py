@@ -11,7 +11,7 @@ from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["local", "test", "staging", "production"]
-LlmProviderName = Literal["fake", "ollama", "gemini"]
+LlmProviderName = Literal["fake", "ollama", "gemini", "groq"]
 
 
 class Settings(BaseSettings):
@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     gemini_fallback_models: str = ""
     # Optional: limit "thinking" tokens on models that think (0 = off, faster answers).
     gemini_thinking_budget: int | None = None
+    # Groq (OpenAI-compatible API, fast open models). Key from console.groq.com; list the
+    # current models with GET https://api.groq.com/openai/v1/models.
+    groq_api_key: SecretStr | None = None
+    groq_model: str = "openai/gpt-oss-120b"
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    # Other providers to try, in order, when the main one fails before answering
+    # (overloaded, rate-limited, down). Comma-separated, e.g. "gemini".
+    llm_fallback_providers: str = ""
 
     # --- Chat limits ----------------------------------------------------------------
     chat_max_input_chars: int = 4000
@@ -111,9 +119,15 @@ class Settings(BaseSettings):
             raise ValueError("AUTH_MODE=dev is not allowed in production")
         if self.auth_mode == "firebase" and not self.firebase_project_id:
             raise ValueError("AUTH_MODE=firebase requires FIREBASE_PROJECT_ID")
-        uses_gemini = "gemini" in (self.llm_provider, self.embedding_provider)
+        chat_providers = [self.llm_provider, *self.fallback_provider_names]
+        for name in self.fallback_provider_names:
+            if name not in ("ollama", "gemini", "groq"):
+                raise ValueError(f"LLM_FALLBACK_PROVIDERS: unknown provider {name!r}")
+        uses_gemini = "gemini" in chat_providers or self.embedding_provider == "gemini"
         if uses_gemini and self.gemini_api_key is None:
-            raise ValueError("LLM_PROVIDER/EMBEDDING_PROVIDER=gemini requires GEMINI_API_KEY")
+            raise ValueError("Gemini (chat, fallback or embeddings) requires GEMINI_API_KEY")
+        if "groq" in chat_providers and self.groq_api_key is None:
+            raise ValueError("Groq (chat or fallback) requires GROQ_API_KEY")
         if self.app_check_mode != "off" and not self.firebase_project_number:
             raise ValueError("APP_CHECK_MODE needs FIREBASE_PROJECT_NUMBER")
         return self
@@ -124,7 +138,13 @@ class Settings(BaseSettings):
             return self.embedding_provider
         if self.llm_provider in ("ollama", "gemini"):
             return self.llm_provider
+        if self.llm_provider == "groq" and self.gemini_api_key is not None:
+            return "gemini"  # Groq has no embeddings API
         return "hashing"
+
+    @property
+    def fallback_provider_names(self) -> list[str]:
+        return [p.strip() for p in self.llm_fallback_providers.split(",") if p.strip()]
 
     @property
     def is_production(self) -> bool:
