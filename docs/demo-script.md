@@ -2,7 +2,7 @@
 
 For a screen recording (Android Studio emulator + Loom or OBS, both free) or a live interview. Practise twice and keep each beat short. Times are cumulative.
 
-**Before you start:** backend running (local with Ollama, or the cloud URL warmed up with the smoke test), signed in as the demo user, notifications allowed, emulator microphone on (Extended controls → Microphone → "Virtual microphone uses host audio input"), Grafana open in a browser tab, one older conversation in history.
+**Before you start:** cloud backend warmed up (open `https://<your-service>.onrender.com/healthz` a minute before; the free server sleeps), or the local backend running, signed in as the demo user, notifications allowed, emulator microphone on (Extended controls → Microphone → "Virtual microphone uses host audio input"), Grafana open in a browser tab, one older conversation in history.
 
 | Time | Show | Say |
 | --- | --- | --- |
@@ -13,12 +13,13 @@ For a screen recording (Android Studio emulator + Loom or OBS, both free) or a l
 | 1:40–2:05 | Press Home on the emulator; wait for the notification (≈20 s) | "A simulated manager approves it. The push says only 'your leave request has an update': no HR data on the lock screen. The details load in the app." *(Fill the wait with the next beat if needed.)* |
 | 2:05–2:30 | Tap the mic: "What's on my calendar this week?" | "Voice uses Android's on-device recognizer, so audio never leaves the phone. The answer is spoken sentence by sentence while it streams. I can interrupt it by tapping the mic." |
 | 2:30–2:50 | Grafana dashboard | "It's built like production: per-user and per-IP rate limits, Firebase App Check, security headers, and metrics like time to first token and tool latency, without logging what anyone asked." |
-| 2:50–3:00 | README architecture diagram | "Backend, app and docs are on GitHub with 350+ tests and ADRs for every major decision. It's deployed free on Render, Neon and Gemini. Happy to go deeper on any part." |
+| 2:50–3:00 | README architecture diagram | "Backend, app and docs are on GitHub with 350+ tests and ADRs for every major decision. It's deployed free on Render and Neon, with chat on Groq and automatic failover to Gemini, so one AI vendor going down doesn't take the assistant down. Happy to go deeper on any part." |
 
 ## If something goes wrong live
 
 - **Cold start (cloud):** "Free tier, it's waking up". Switch to the local backend.
 - **Model is slow or odd:** set `LLM_PROVIDER=fake`. The tool cards, citations and actions still demo the architecture.
+- **Booked leave disappeared:** the demo HR system keeps changes in memory, and the free server forgets them when it sleeps. Book again, or record in one session.
 - **No push:** show the backend log line `push_logged` and the in-app notification.
 
 ## Recording tips
