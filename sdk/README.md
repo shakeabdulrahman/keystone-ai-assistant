@@ -91,6 +91,23 @@ extracted. Prefer pointing `baseUrl` at your own backend and authenticating with
 `Auth.Headers { mapOf("Authorization" to "Bearer ${session.token()}") }`. The sample reads
 keys from environment variables.
 
+## Android sample app
+
+`samples/android-chat` is a Compose chat app on the SDK: streaming answers, which provider
+answered, retry/failover log, token usage, a Stop button, and a switch that breaks the primary
+model so you can watch failover to Gemini. Put keys in `sdk/local.properties` (gitignored):
+
+```properties
+groq.apiKey=...
+groq.model=openai/gpt-oss-120b
+gemini.apiKey=...
+gemini.model=gemini-3.8-flash
+```
+
+then run the `samples.android-chat` configuration in Android Studio. Keys are compiled into
+**debug builds only**, for trying it on your own phone; a key in an APK can be extracted, so a
+real app should call its own backend instead.
+
 ## Guides
 
 - [Providers and capabilities](docs/providers.md): OpenAI-compatible, Gemini, on-device, custom providers and transports
